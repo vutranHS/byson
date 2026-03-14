@@ -1,8 +1,9 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initStorageHandlers } from './storage'
+import { initDbHandlers } from './db'
 
 function createWindow() {
   // Create the browser window.
@@ -53,8 +54,19 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
+  ipcMain.handle('dialog:openFile', async (_, options) => {
+    const result = await dialog.showOpenDialog(options)
+    if (!result.canceled && result.filePaths.length > 0) {
+      return result.filePaths[0]
+    }
+    return null
+  })
+
   // Khởi tạo các IPC Listeners liên quan đến đọc/ghi Connection Settings
   initStorageHandlers()
+
+  // Khởi tạo các IPC Listeners liên kết Node MongoDB Driver
+  initDbHandlers()
 
   createWindow()
 
