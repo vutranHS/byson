@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+/* 
+  Modern UI design based on core guidelines.
+  Default theme: Dark Mode
+*/
+
+@theme {
+  --color-bg-primary: #121212;
+  --color-bg-secondary: #1E1E1E;
+  --color-bg-tertiary: #2D2D2D;
+  
+  --color-text-primary: #E0E0E0;
+  --color-text-secondary: #A0A0A0;
+  
+  --color-accent: #007ACC;
+  --color-accent-hover: #005F9E;
+  
+  --color-border: #333333;
+  
+  /* Badges for Results Tree/Table */
+  --color-badge-objectid: #D28445;
+  --color-badge-string: #6A9955;
+  --color-badge-int: #4EC9B0;
+  --color-badge-date: #C586C0;
+  --color-badge-boolean: #569CD6;
+}
+
+@layer base {
+  * {
+    @apply border-border box-border;
+  }
+  body {
+    @apply bg-bg-primary text-text-primary antialiased m-0 p-0 overflow-hidden font-sans;
+    /* Disable text selection by default for a native app feel */
+    user-select: none;
+  }
+  /* Enable text selection within editor and results areas */
+  .selectable {
+    user-select: text;
+  }
+}
