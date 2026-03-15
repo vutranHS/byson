@@ -17,7 +17,7 @@ export async function createSSHTunnel(sshConfig, targetHost, targetPort) {
 
     sshClient.on('ready', () => {
       console.log(`[SSH] Tunnel ready to local port forwarding...`)
-      // Mở 1 local TCP server ẩn danh trên port ngẫu nhiên
+      // Open an anonymous local TCP server on a random port
       const server = net.createServer((socket) => {
         console.log(`[SSH] Local connection received, forwarding to ${targetHost}:${targetPort}`)
         sshClient.forwardOut(

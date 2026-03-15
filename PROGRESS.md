@@ -1,77 +1,104 @@
-# Tiến độ phát triển RoboMongo Clone (Electron + React)
+# LeafBase Development Progress (Electron + React)
 
-Bảng dưới đây liệt kê tiến độ chi tiết của toàn bộ dự án dựa theo `ELECTRON_GUI_SPEC.md` và thực tế code hiện tại.
+The table below details the project's progress based on the `ELECTRON_GUI_SPEC.md` and the current codebase.
 
-## Ghi chú Trạng thái:
-- 🟢 **Real Implementation**: Hoàn thiện 100% logic Backend và UI Frontend.
-- 🟡 **UI Mockup**: Đã có giao diện, nhưng chưa có hook API/Logic xử lý dưới nền.
-- ⚪ **Not Started**: Chưa bắt đầu.
-
----
-
-### Phase 1: Project Setup (Hoàn thành: 95%)
-| Tính năng | Trạng thái | Ghi chú |
-| :--- | :--- | :--- |
-| Khởi tạo template (Vite + React + CommonJS) | 🟢 Real | Đang chạy tốt |
-| Setup Theme (Màu sắc, Font, Tailwind) | 🟢 Real | Hệ thống CSS Variables hoạt động tốt |
-| Cấu trúc Main (Node.js) & Renderer (React) | 🟢 Real | Dùng chuẩn IPC |
-| Cấu hình đóng gói `electron-builder` | ⚪ Not Started | Chờ Phase 7 đánh bóng |
-
-### Phase 2: Connection Manager (Hoàn thành: 90%)
-| Tính năng | Trạng thái | Ghi chú |
-| :--- | :--- | :--- |
-| Danh sách Connection UI | 🟢 Real | Tải từ file userData |
-| CRUD: Thêm, Sửa, Xoá, Clone | 🟢 Real | Hook hoàn chỉnh 100% |
-| Lưu Data xuống Local JSON | 🟢 Real | Ghi qua `db:saveConnections` |
-| Kéo thả sắp xếp thứ tự (Drag & Drop) | ⚪ Not Started | |
-
-### Phase 3: Setup Connection Settings (5 Tabs) (Hoàn thành: 100%)
-| Tính năng | Trạng thái | Ghi chú |
-| :--- | :--- | :--- |
-| Tab Connection (Direct / Replica, Name, Address) | 🟢 Real | Quản lý form data chung cho mọi tab. |
-| Tab Authentication (SCRAM, X.509...) | 🟢 Real | Hoàn thiện URI encode User/Pass/DB/AuthMech trên Backend DB driver. |
-| Tab SSH Tunnel (Password / Private Key) | 🟢 Real | Tạo SSH tunnel bằng thư viện `ssh2` trước khi init MongoClient. |
-| Tab TLS (Self-signed / CA Certificate) | 🟢 Real | Parse đường dẫn File Certificate vào MongoOptions. |
-| Tab Advanced (Replica Set, Read Preference) | 🟢 Real | Map qua cấu hình MongoDB Node.js chuẩn. |
-| Nút "Test Connection" góc dưới | 🟢 Real | Check ping TCP với Tunnel trước khi apply. |
-
-### Phase 4: Main Window Layout & Query Editor (Hoàn thành: 95%)
-| Tính năng | Trạng thái | Ghi chú |
-| :--- | :--- | :--- |
-| Menu trái: Cây Thư mục DB/Collection | 🟢 Real | Tự fetch list collections khi bấm sổ DB. |
-| Multi-tab Tabsbar (Tab Manager) | 🟢 Real | Quản lý state độc lập với Zustand. |
-| Trình soạn thảo Monaco Editor | 🟢 Real | Load local workers, không bị dính lỗi CSP. |
-| Toolbar Results & Thông số thời gian chóp | 🟢 Real | Bấm Play là auto đếm Time chạy. |
-| System: Phân trang `< >`| Pagination (Skip / Limit) | 🟢 Real | Dùng skip/limit Mongo Node.JS Querying |
-| System: JSON Result View | 🟢 Real | Có Highlight Syntax qua plugin react-json-view hoặc Monaco. |
-| System: Table Result View | 🟢 Real | Hiển thị dạng lưới, Double click xem Full Value, hỗ trợ Context Menu (CRUD). |
-| System: Tree Result View | 🟢 Real | Hiển thị Type Badges (ObjectId/Date/String) màu sắc trực quan, sub-nodes (Collapse/Expand). |
-| Thanh điều hướng Breadcrumb | 🟢 Real | Gắn phía trên Monaco Editor thể hiện `Localhost / db / collection` |
-| Output Logs Panel (Status Bar) | 🟢 Real | Ghi nhận History log thời gian chạy, báo lỗi, thành công ở Terminal góc dưới. |
-
-### Phase 5: Context Menus (Chuột phải) (Hoàn thành: 100%)
-| Tính năng | Trạng thái | Ghi chú |
-| :--- | :--- | :--- |
-| Menu TreeView Data: Copy JSON, Expand/Collapse | 🟢 Real | Chuột phải vào Record để sử dụng |
-| Menu Tree/Table Data: Edit, View, Insert Modal | 🟢 Real | Tích hợp giao diện Modal API gốc MongoDB |
-| Menu TableView Data: Copy Value, Copy Name | 🟢 Real | Áp dụng trên Table Cell click |
-| Menu Database: Drop, Statistics, Current Ops | 🟢 Real | Right-click vào node DB (Sidebar) |
-| Menu Collection: Drop, Rename, Duplicate... | 🟢 Real | Right-click vào node Collection (Sidebar) |
-
-### Phase 6: Shell & Console (Hoàn thành: Tạm ngưng)
-| Tính năng | Trạng thái | Ghi chú |
-| :--- | :--- | :--- |
-| Backend Sandbox NodeJS `vm` | 🟢 Real | Hoạt động tốt cho JS Query Editor trên tab 1. |
-| UI Tab Native `mongosh` | ⚪ Not Started | Chưa gọi Console App. |
-
-### Phase 7: Polish & Deploy
-| Tính năng | Trạng thái | Ghi chú |
-| :--- | :--- | :--- |
-| Đóng gói ra DMG/EXE | ⚪ Not Started | |
-| Auto-update tích hợp | ⚪ Not Started | |
+## Status Legend:
+- 🟢 **Real Implementation**: 100% complete Backend logic and Frontend UI.
+- 🟡 **UI Mockup**: Interface exists, but underlying API/Logic hooks are missing.
+- ⚪ **Not Started**: Development has not yet begun.
 
 ---
 
-## 🔥 Next Action Tối Ưu Nhất (Quyết định của User):
-- **Lựa chọn A:** Quay lại xử lý logic Backend móc nối Real Implementation cho **Tab SSH, Auth, TLS** (Thêm package ssh2, cấu hình Mongo Client).
-- **Lựa chọn B:** Đi tiếp sang làm **Phase 5 (Context Menu Chuột phải)** vẽ menu popup Drop/Xóa DB/Collection cho đủ khung sườn giao diện.
+### Phase 1: Project Setup (Progress: 100%)
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| Template Initialization (Vite + React + CommonJS) | 🟢 Real | Working well |
+| Theme Setup (Colors, Fonts, Tailwind) | 🟢 Real | CSS Variables system working effectively |
+| Main (Node.js) & Renderer (React) Structure | 🟢 Real | Using IPC standards |
+| `electron-builder` configuration | 🟢 Real | Configured in `electron-builder.yml` |
+
+### Phase 2: Connection Manager (Progress: 95%)
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| Connection List UI | 🟢 Real | Loads from userData file |
+| CRUD: Add, Edit, Delete, Clone | 🟢 Real | Hooks 100% complete |
+| Save Data to Local JSON | 🟢 Real | Written via `db:saveConnections` |
+| Drag & Drop Reordering | ⚪ Not Started | |
+
+### Phase 3: Setup Connection Settings (5 Tabs) (Progress: 100%)
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| Connection Tab (Direct / Replica, Name, Address) | 🟢 Real | Shared form data management for all tabs. |
+| Authentication Tab (SCRAM, X.509...) | 🟢 Real | URI encoding for User/Pass/DB/AuthMech on Backend driver. |
+| SSH Tunnel Tab (Password / Private Key) | 🟢 Real | SSH tunnel creation using `ssh2` before MongoClient init. |
+| TLS Tab (Self-signed / CA Certificate) | 🟢 Real | Certificate file paths parsed into MongoOptions. |
+| Advanced Tab (Replica Set, Read Preference) | 🟢 Real | Mapped to standard MongoDB Node.js config. |
+| "Test Connection" Button | 🟢 Real | TCP ping check with Tunnel before applying. |
+
+### Phase 4: Main Window Layout & Query Editor (Progress: 95%)
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| Left Menu: DB/Collection Tree | 🟢 Real | Auto-fetches collections on DB expansion. |
+| Multi-tab Manager | 🟢 Real | Independent state management with Zustand. |
+| Monaco Editor | 🟢 Real | Local workers loaded, no CSP issues. |
+| Results Toolbar & Execution Time | 🟢 Real | Real-time execution timer. |
+| Pagination `< >` (Skip / Limit) | 🟢 Real | Using skip/limit in MongoDB Querying |
+| Projection support in `find()` | 🟢 Real | Second argument in find() now works correctly. |
+| JSON Result View | 🟢 Real | Syntax highlighting via Monaco. |
+| Table Result View | 🟢 Real | Grid display, double-click for full value, Context Menu (CRUD). |
+| Tree Result View | 🟢 Real | Type Badges (ObjectId/Date/String), sub-node support. |
+| Breadcrumb Navigation | 🟢 Real | Located above Monaco Editor: `Localhost / db / col` |
+| Output Logs Panel (Status Bar) | 🟢 Real | History logs for execution time, errors, and success. |
+
+### Phase 5: Context Menus (Right-click) (Progress: 100%)
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| TreeView Data Menu: Copy JSON, Expand/Collapse | 🟢 Real | Right-click on records |
+| Tree/Table Data Menu: Edit, View, Insert Modal | 🟢 Real | Integrated MongoDB Modal API |
+| TableView Data Menu: Copy Value, Copy Name | 🟢 Real | Applied on table cell click |
+| Database Menu: Drop, Statistics, Current Ops | 🟢 Real | Right-click on DB node (Sidebar) |
+| Collection Menu: Drop, Rename, Duplicate... | 🟢 Real | Right-click on Collection node (Sidebar) |
+
+### Phase 6: Shell & Console (Progress: On Hold)
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| Backend Sandbox NodeJS `vm` | 🟢 Real | Fully functional for JS Query Editor. |
+| Native `mongosh` UI Tab | ⚪ Not Started | |
+
+---
+
+## 🔥 Current Tasks:
+- [x] Finalize SSH Tunneling stability.
+- [x] Professionalize documentation (English translation).
+- [x] Release Automation (GitHub Actions — unsigned builds for Win/Mac/Linux).
+- [x] Resizable editor/data panel (drag to resize).
+- [x] Query Editor Shortcut (Cmd/Ctrl + Enter).
+- [ ] Add drag & drop for connection sorting.
+
+---
+
+## 🗺️ v2 Feature Roadmap (Backlog)
+
+### P1 — High Value / Easy
+| Feature | Description |
+| :--- | :--- |
+| **Query History** | Auto-save every query on Run. Show a history list per collection. |
+| **Autocomplete: Operators** | Register MongoDB operators (`$match`, `$group`, `$sum`...) in Monaco provider. |
+
+### P2 — High Value / Medium
+| Feature | Description |
+| :--- | :--- |
+| **Field-name Autocomplete** | Fetch schema via `findOne()` and inject field names into Monaco completion. |
+| **Saved Queries** | Bookmark a named query snippet per collection, persisted in `userData`. |
+
+### P3 — Medium Value / Medium
+| Feature | Description |
+| :--- | :--- |
+| **Index Management UI** | List, create, and drop indexes via a dedicated dialog on the collection context menu. |
+| **Native `mongosh` Shell Tab** | Bundled `mongosh` binary per platform, executed in a real terminal tab. |
+
+### P4 — Optimization
+| Feature | Description |
+| :--- | :--- |
+| **Virtual Scroll for Results** | Only render visible rows in Table/Tree view — needed for 1000+ document queries. |
+| **Drag & Drop Connection Reorder** | Reorder connections in the sidebar via drag & drop. |

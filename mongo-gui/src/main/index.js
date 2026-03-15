@@ -12,7 +12,7 @@ function createWindow() {
     height: 670,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -21,6 +21,7 @@ function createWindow() {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    mainWindow.maximize()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -62,10 +63,10 @@ app.whenReady().then(() => {
     return null
   })
 
-  // Khởi tạo các IPC Listeners liên quan đến đọc/ghi Connection Settings
+  // Initialize IPC listeners for connection settings storage (read/write)
   initStorageHandlers()
 
-  // Khởi tạo các IPC Listeners liên kết Node MongoDB Driver
+  // Initialize IPC listeners for MongoDB driver operations
   initDbHandlers()
 
   createWindow()

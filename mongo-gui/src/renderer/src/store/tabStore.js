@@ -10,13 +10,15 @@ export const useTabStore = create((set, get) => ({
     // tabInfo = { title, dbName, collectionName, type: 'query'|'shell' }
     const { tabs } = get()
 
-    // TODO: Có thể check nếu tab collection này đã mở thì focus vào nó
+    // TODO: Consider checking if this collection tab is already open and focusing on it instead
     const newId = `tab-${Date.now()}`
 
     // Auto-generate query based on title/collection
-    const defaultQuery = tabInfo.collectionName
-      ? `db.getCollection('${tabInfo.collectionName}').find({})`
-      : `// New Shell`
+    const defaultQuery = tabInfo.type === 'indexes'
+      ? ''
+      : tabInfo.collectionName
+        ? `db.getCollection('${tabInfo.collectionName}').find({})`
+        : `// New Shell`
 
     const newTab = {
       id: newId,
@@ -38,9 +40,13 @@ export const useTabStore = create((set, get) => ({
       activeTabId: newId
     })
 
-    // Auto-run query for collections
+    // Auto-run query for collections or refresh indexes
     if (tabInfo.collectionName) {
-      setTimeout(() => get().executeTabQuery(newId), 50)
+      if (tabInfo.type === 'indexes') {
+        useConnectionStore.getState().refreshIndexes(tabInfo.connId, tabInfo.dbName, tabInfo.collectionName)
+      } else {
+        setTimeout(() => get().executeTabQuery(newId), 50)
+      }
     }
   },
 
@@ -97,7 +103,7 @@ export const useTabStore = create((set, get) => ({
     })
 
     try {
-      // Mỗi Tab tự nhớ connId của mình
+      // Each tab tracks its own connection ID
       const connId = tab.connId
       const connName =
         useConnectionStore.getState().connections.find((c) => c.id === connId)?.name || 'Unknown'
@@ -120,6 +126,7 @@ export const useTabStore = create((set, get) => ({
                   ...t,
                   loading: false,
                   results: result.data,
+                  totalCount: result.totalCount !== undefined ? result.totalCount : t.totalCount,
                   execTime: result.execTime
                 }
               : t

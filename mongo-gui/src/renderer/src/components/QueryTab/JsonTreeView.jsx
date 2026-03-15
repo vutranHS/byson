@@ -48,7 +48,7 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal })
   const [expanded, setExpanded] = useState(false)
   const { onContextMenu } = useContext(TreeContext)
 
-  // Lắng nghe tín hiệu đệ quy từ cha (Expand/Collapse All)
+  // Listen for recursive signals from parent (Expand/Collapse All)
   useEffect(() => {
     if (forcedExpansionSignal) {
       setExpanded(forcedExpansionSignal.expand)
@@ -78,7 +78,7 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal })
 
   const [localForceSignal, setLocalForceSignal] = useState(null)
 
-  // Propagate signal qua nhánh con: lấy localForceSignal nếu có, không thì lấy forcedExpansionSignal trừ trên truyền xuống
+  // Propagate signal to children: use local signal if present, otherwise pass down parent signal
   const activeSignal = localForceSignal || forcedExpansionSignal
 
   const typeColors = {
@@ -165,14 +165,14 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
   const [menuConfig, setMenuConfig] = useState(null)
   const menuRef = useRef(null)
 
-  // State quản lý Modal View/Edit/Insert Document
+  // Modal state for View/Edit/Insert Document
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     mode: 'view', // 'view'|'edit'|'insert'
     document: null
   })
 
-  // Đóng menu khi click ra ngoài
+  // Close menu on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -284,7 +284,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
           </tbody>
         </table>
 
-        {/* Cửa sổ Context Menu */}
+        {/* Context Menu Window */}
         {menuConfig && (
           <div
             ref={menuRef}

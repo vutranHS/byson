@@ -30,9 +30,9 @@ export default function ConnectionManager({ isOpen, onClose }) {
     if (!selectedId) return
     const success = await connectToDatabase(selectedId)
     if (success) {
-      onClose() // Đóng modal khi connect thành công
+      onClose() // Close the modal upon successful connection
     } else {
-      // Dùng alert tạm thời hoặc hiển thị error inline (cần thiết kế sau)
+      // Use a temporary alert or display the error inline (UI/UX design pending)
       const { error } = useConnectionStore.getState()
       if (error) alert(`Connect Error: ${error}`)
     }

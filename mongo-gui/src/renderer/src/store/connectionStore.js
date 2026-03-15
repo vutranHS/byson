@@ -17,7 +17,7 @@ export const useConnectionStore = create((set, get) => ({
   connecting: false,
   error: null,
 
-  // Load danh sách từ file JSON thông qua IPC
+  // Load connections from JSON file via IPC
   loadConnections: async () => {
     try {
       const data = await window.electron.ipcRenderer.invoke('storage:getConnections')
@@ -30,7 +30,7 @@ export const useConnectionStore = create((set, get) => ({
     }
   },
 
-  // Set danh sách và lưu xuống đĩa
+  // Update the connection list and save to disk
   saveConnections: async (newConns) => {
     try {
       set({ connections: newConns })
@@ -40,10 +40,10 @@ export const useConnectionStore = create((set, get) => ({
     }
   },
 
-  // Chọn connection
+  // Select a connection profile
   selectConnection: (id) => set({ selectedId: id }),
 
-  // Kết nối (gọi IPC)
+  // Establish connection (IPC call)
   connectToDatabase: async (id) => {
     set({ connecting: true, error: null })
     const { connections } = get()
@@ -59,7 +59,7 @@ export const useConnectionStore = create((set, get) => ({
         set({
           activeConnections: {
             ...get().activeConnections,
-            [id]: { databases: result.databases || [] }
+            [id]: { databases: result.databases || [], version: result.version || 'unknown' }
           },
           connecting: false
         })
@@ -74,7 +74,7 @@ export const useConnectionStore = create((set, get) => ({
     }
   },
 
-  // Ngắt kết nối một server
+  // Disconnect from a specific server
   disconnectDatabase: async (connId) => {
     const { activeConnections } = get()
     if (!activeConnections[connId]) return
@@ -82,13 +82,20 @@ export const useConnectionStore = create((set, get) => ({
       await window.electron.ipcRenderer.invoke('db:disconnect', connId)
       const newActive = { ...activeConnections }
       delete newActive[connId]
-      set({ activeConnections: newActive })
+      
+      const newExpanded = { ...get().expandedNodes }
+      delete newExpanded[`conn_${connId}`]
+      
+      set({ 
+        activeConnections: newActive,
+        expandedNodes: newExpanded
+      })
     } catch (err) {
       console.error(err)
     }
   },
 
-  // Đóng mở Node bất kỳ trên Tree. param `nodeType` = 'conn' | 'db', `id` = connId, `name` = dbName (optional)
+  // Toggle expansion of any node on the tree. param `nodeType` = 'conn' | 'db', `id` = connId, `name` = dbName (optional)
   toggleNode: async (nodeType, id, name) => {
     const { expandedNodes, activeConnections, dbCollections } = get()
     const nodeId = nodeType === 'conn' ? `conn_${id}` : `db_${id}_${name}`
@@ -97,12 +104,12 @@ export const useConnectionStore = create((set, get) => ({
     // Toggle UI immediately
     set({ expandedNodes: { ...expandedNodes, [nodeId]: !isExpanded } })
 
-    // Nêú mở Connection mà chưa connect thì connect
+    // If expanding a connection that isn't connected, initiate connection
     if (!isExpanded && nodeType === 'conn' && !activeConnections[id]) {
       get().connectToDatabase(id)
     }
 
-    // Nếu mở Database mà chưa từng load collections
+    // If expanding a database that hasn't loaded collections yet
     if (!isExpanded && nodeType === 'db') {
       const cacheKey = `${id}_${name}`
       if (!dbCollections[cacheKey]) {
@@ -148,7 +155,48 @@ export const useConnectionStore = create((set, get) => ({
     }
   },
 
-  // Thêm mới
+  // ${connId}_${dbName}_${colName} -> [{ name, key, size, usage }]
+  collectionIndexes: {},
+
+  refreshIndexes: async (connId, dbName, colName) => {
+    try {
+      const [idxRes, statsRes, collStatsRes] = await Promise.all([
+        window.electron.ipcRenderer.invoke('db:listIndexes', { connId, dbName, collectionName: colName }),
+        window.electron.ipcRenderer.invoke('db:indexStats', { connId, dbName, collectionName: colName }),
+        window.electron.ipcRenderer.invoke('db:collStats', { connId, dbName, collectionName: colName })
+      ])
+
+      if (idxRes.ok) {
+        // Index sizes are in collStatsRes.stats.indexSizes (object: name -> size)
+        const indexSizes = (collStatsRes.ok && collStatsRes.stats.indexSizes) || {}
+
+        // Merge basic index info with stats and sizes
+        const indexes = idxRes.indexes.map(idx => {
+          const stat = statsRes.ok ? statsRes.stats.find(s => s.name === idx.name) : null
+          return {
+            ...idx,
+            size: indexSizes[idx.name] || 0,
+            usageCount: stat ? stat.accesses?.ops || 0 : 0,
+            since: stat ? stat.accesses?.since : null
+          }
+        })
+
+        set({
+          collectionIndexes: {
+            ...get().collectionIndexes,
+            [`${connId}_${dbName}_${colName}`]: indexes
+          }
+        })
+        return { ok: true, indexes }
+      }
+      return { ok: false, error: idxRes.error }
+    } catch (err) {
+      console.error('Failed to fetch indexes', err)
+      return { ok: false, error: err.message }
+    }
+  },
+
+  // Add a new connection profile
   addConnection: (conn) => {
     const { connections, saveConnections } = get()
     const newId = connections.length > 0 ? Math.max(...connections.map((c) => c.id)) + 1 : 1
@@ -157,14 +205,14 @@ export const useConnectionStore = create((set, get) => ({
     set({ selectedId: newId })
   },
 
-  // Cập nhật
+  // Update an existing connection profile
   updateConnection: (id, updatedData) => {
     const { connections, saveConnections } = get()
     const newConns = connections.map((c) => (c.id === id ? { ...c, ...updatedData } : c))
     saveConnections(newConns)
   },
 
-  // Xóa
+  // Remove a connection profile
   removeConnection: (id) => {
     const { connections, saveConnections, selectedId } = get()
     const newConns = connections.filter((c) => c.id !== id)

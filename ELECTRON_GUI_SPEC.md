@@ -1,89 +1,43 @@
-# Electron MongoDB GUI - Full Specification
+# LeafBase - Full Specification
 
-> Clone lại Robo3T bằng Electron + React + Node.js MongoDB driver.  
-> Hỗ trợ MongoDB **4.4, 5.x, 6.x, 7.x, 8.x** chính thức.
+> A modern MongoDB GUI built with Electron + React + Node.js MongoDB driver.
 
 ---
 
 ## 0. Background & Context
 
-### Tại sao build cái này?
-- **Robo3T** (GUI MongoDB phổ biến) đã ngừng phát triển và **không hỗ trợ MongoDB 5.0+** vì dùng driver C++ cũ bị lock ở wire protocol cũ
-- Thay vì patch C++, quyết định **viết lại hoàn toàn bằng Electron + Node.js** vừa dễ maintain, vừa support mọi version MongoDB mới
+### Why build this?
+- Many existing MongoDB GUIs are either outdated, bloated, or lack support for modern MongoDB features (5.0+).
+- LeafBase is a fresh, modern implementation designed to provide a lightweight yet powerful interface using the official Node.js driver.
 
-### Quyết định kỹ thuật quan trọng
-- **KHÔNG dùng mongosh** làm backend chính vì mongosh 2.x chỉ officially support MongoDB 7.0+ (không chắc với 4.4)
-- **Dùng `mongodb` npm driver v6** — chính thức support 4.4 → 8.x, đây là driver mà MongoDB Compass (GUI chính thức) dùng
-- **KHÔNG dùng TypeScript** — dùng plain JavaScript/CommonJS (React với .jsx files)
-- **THIẾT KẾ**: Phong cách hiện đại (Modern UI), hỗ trợ Dark Mode, animation mượt mà, không dùng UI kiểu cổ điển của Robo3T.
-- **MONGOSH**: Sẽ được **bundle trực tiếp** vào bộ cài để đảm bảo "chạy ngay trên máy trắng" (Out of the box).
+### Key Technical Decisions
+- **NO `mongosh` as primary backend**: `mongosh` 2.x only officially supports MongoDB 7.0+ (compatibility with 4.4 is uncertain).
+- **Using `mongodb` Node.js Driver v6**: Officially supports 4.4 → 8.x. This is the same driver power by MongoDB Compass (the official GUI).
+- **Plain JavaScript**: No TypeScript — uses standard JavaScript/CommonJS (React with .jsx files) for maximum accessibility.
+- **Design Philosophy**: Modern UI with Dark Mode support, smooth animations, moving away from Robo3T's classic 90s aesthetic.
+- **Bundled Shell**: `mongosh` will be **bundled directly** in the installer for an "out-of-the-box" experience.
 
-### Project Location
-```
-~/Projects/mongo-gui/
-```
-*(Tạo ở bất kỳ đâu trên máy)*
-
-### Current Status
-- ✅ Spec đã hoàn thiện
-- ✅ UI đã phân tích từ những screenshots của Robo3T gốc → lưu trong `docs/screenshots/`
-- ⬜ **Chưa viết dòng code nào** — bắt đầu từ Phase 1
-
-### UI Screenshots Reference (Trong lịch sử chat)
-> 🖼️ **Gửi AI mới**: Hãy xem các ảnh mà User đã chụp trong lịch sử chat này để hiểu layout và style của Robo3T:
-> - **Lượt chat 691**: Danh sách Connection, Tab Connection, Tab Authentication.
-> - **Lượt chat 697**: Context menu Database, Shell Tab, Tab TLS, Context menu Collection.
-> - **Lượt chat 700**: Tab SSH.
-
-| Image Content | Mô tả chi tiết cho AI |
-|---------------|-----------------------|
-| **Connection Manager** | Bảng 4 cột, badge "SSH" cho server có tunnel, nút Connect màu xanh (macOS style). |
-| **Settings Dialog** | 5 tabs, thiết kế form gọn gàng, có nút "Test" ở góc dưới trái. |
-| **Main Layout** | Sidebar TreeView (trái), Tabs Query (phải), Results (dưới Query editor) có toggle Tree/Table/JSON. |
-| **Tree/Table/JSON** | Tree view có data types (badges: ObjectId, String, v.v.). Table có header tự động. |
-| **Context Menus** | Rất nhiều options quản lý DB/Collection (Drop, Repair, Stat, v.v.). |
-
-### Cách tiếp tục (cho AI mới)
-> 1. Đọc kỹ file spec này (`ELECTRON_GUI_SPEC.md`) để hiểu logic & tech stack.
-> 2. Kéo lên xem lại 11 screenshots trong lịch sử chat để nắm GUI.
-> 3. Bắt đầu **Phase 1** (Project Init) trong mục `## 9. Development Phases`.
-> 4. Tuyệt đối: **KHÔNG TypeScript, KHÔNG C++, KHÔNG nhầm lẫn mongosh là driver chính.**
-> 5. Dùng Node.js `mongodb` driver làm core kết nối.
+### Project Status
+- ✅ Specification finalized.
+- ✅ Modern UI architecture implemented.
+- ✅ Backend driver integration complete.
 
 ---
 
 ## 1. Tech Stack
 
-| Layer | Technology | Lý do |
-|-------|-----------|-------|
-| App shell | **Electron 28+** | Cross-platform desktop |
-| UI | **React 18 + CommonJS** | Component-based, dễ đọc |
-| Build | **electron-vite** | Fast HMR, Vite-based |
-| Editor | **Monaco Editor** | Giống VS Code, syntax highlight |
-| DB driver | **`mongodb` npm v6** | Official driver, hỗ trợ 4.4–8.x guaranteed |
-| State | **Zustand** | Lightweight, no boilerplate |
-| SSH tunnel | **`ssh2` npm** | Pure JS SSH implementation |
-| Packaging | **electron-builder** | → `.dmg` (macOS), `.exe` (Win), `.AppImage` (Linux) |
-| Binary | **`mongosh` bundled** | Support chạy ngay trên máy mới |
-| Storage | **JSON file** (userData dir) | Lưu connections, settings |
-
-### Tại sao `mongodb` npm driver thay vì mongosh?
-- Chính thức hỗ trợ MongoDB **4.4, 5.0, 6.0, 7.0, 8.0** (có compatibility matrix)
-- Không cần bundle thêm binary (~5MB vs ~30MB)
-- MongoDB Compass (GUI chính thức của MongoDB) dùng đúng driver này
-- Ít lỗi bất ngờ hơn, pure JavaScript
-
-### Shell tab (phụ)
-- Shell tab dùng `mongosh` nếu user đã cài, hoặc disabled nếu không có
-- Feature phụ, không ảnh hưởng chức năng chính
-
-### 1.1 Persistence & Security (Lưu trữ)
-- **Lưu ở đâu?**: Sử dụng thư mục `app.getPath('userData')`. 
-  - macOS: `~/Library/Application Support/MongoGUI/`
-  - Windows: `%APPDATA%\MongoGUI\`
-- **File lưu trữ**: `connections.json` lưu danh sách connection profiles.
-- **Persistence**: Khi app khởi động, main process sẽ đọc file này và gửi lên Renderer qua IPC `storage:getConnections`. 
-- **Auto-save**: Mọi thay đổi (Add/Edit/Delete/Reorder) đều gọi `storage:saveConnections` để ghi đè ngay lập tức vào file JSON.
+| Layer | Technology | Rationale |
+|-------|-----------|-----------|
+| App shell | **Electron 28+** | Cross-platform desktop support |
+| UI | **React 18 + CommonJS** | Component-based, maintainable |
+| Build | **electron-vite** | Fast HMR, modern build pipeline |
+| Editor | **Monaco Editor** | VS Code heritage, rich syntax support |
+| DB driver | **`mongodb` Node.js v6** | Official driver, 4.4–8.x guaranteed support |
+| State | **Zustand** | Lightweight, high-performance state management |
+| SSH tunnel | **`ssh2` npm** | Native JavaScript SSH implementation |
+| Packaging | **electron-builder** | Target `.dmg`, `.exe`, `.AppImage` |
+| Binary | **`mongosh` bundled** | Ready to run on any machine |
+| Storage | **JSON file** (userData) | Persists connections and settings |
 
 ---
 
@@ -93,36 +47,36 @@
 mongo-gui/
 ├── electron/
 │   ├── main.js              ← Electron entry, window management
-│   ├── preload.js           ← IPC bridge expose
+│   ├── preload.js           ← IPC bridge exposure
 │   └── ipc/
 │       ├── db.js            ← MongoDB driver operations
 │       ├── ssh.js           ← SSH tunnel management
-│       ├── storage.js       ← connections.json read/write
-│       └── shell.js         ← Shell tab (mongosh spawn)
+│       ├── storage.js       ← Persistence (connections.json)
+│       └── shell.js         ← Shell tab management
 ├── src/
 │   ├── App.jsx
 │   ├── store/
-│   │   └── useAppStore.js   ← Zustand global state
+│   │   └── useAppStore.js   ← Global state
 │   ├── components/
 │   │   ├── ConnectionManager/
-│   │   │   ├── index.jsx    ← Modal danh sách connections
+│   │   │   ├── index.jsx    ← Connection List Modal
 │   │   │   └── ConnectionRow.jsx
 │   │   ├── ConnectionDialog/
-│   │   │   ├── index.jsx    ← Modal 5 tabs settings
+│   │   │   ├── index.jsx    ← 5-tab Settings Modal
 │   │   │   ├── TabConnection.jsx
 │   │   │   ├── TabAuthentication.jsx
 │   │   │   ├── TabSSH.jsx
 │   │   │   ├── TabTLS.jsx
 │   │   │   └── TabAdvanced.jsx
 │   │   ├── Sidebar/
-│   │   │   ├── index.jsx    ← DB/Collection tree
+│   │   │   ├── index.jsx    ← Database/Collection Tree
 │   │   │   ├── ServerNode.jsx
 │   │   │   ├── DatabaseNode.jsx
 │   │   │   └── CollectionNode.jsx
 │   │   ├── QueryTabs/
-│   │   │   ├── index.jsx    ← Tab bar + contents
+│   │   │   ├── index.jsx    ← Tab management
 │   │   │   ├── QueryTab.jsx ← Editor + results
-│   │   │   └── ShellTab.jsx ← Shell terminal
+│   │   │   └── ShellTab.jsx ← Terminal view
 │   │   └── Results/
 │   │       ├── TreeView.jsx
 │   │       ├── TableView.jsx
@@ -133,456 +87,97 @@ mongo-gui/
 
 ---
 
-## 3. Data Models (Plain JS Objects)
+## 3. Data Models
 
-### Connection
+### Connection Profile
 
 ```js
-// connections.json - mỗi connection là 1 object
 {
-  id: '',           // uuid
-  name: '',         // Tên hiển thị
+  id: '',           // UUID
+  name: '',         // Display Name
   type: '',         // 'direct' | 'replica'
   host: '',
   port: 27017,
-
   auth: {
     enabled: false,
     database: 'admin',
     username: '',
     password: '',
-    mechanism: 'SCRAM-SHA-1'  // hoặc SCRAM-SHA-256, DEFAULT
+    mechanism: 'DEFAULT'  // SCRAM-SHA-1, SCRAM-SHA-256
   },
-
   ssh: {
     enabled: false,
     host: '',
     port: 22,
     username: '',
-    authMethod: 'password',   // hoặc 'key'
+    authMethod: 'password', // 'password' | 'key'
     password: '',
-    keyPath: '',              // đường dẫn private key file
-    passphrase: '',
-    askPassphrase: false
+    keyPath: '',
+    passphrase: ''
   },
-
   tls: {
     enabled: false,
-    authMethod: 'ca',         // 'self-signed' | 'ca'
+    authMethod: 'ca',       // 'self-signed' | 'ca'
     caPath: '',
     usePem: false,
     pemPath: '',
-    crlPath: '',
     invalidHostnames: 'not-allowed'
   }
 }
 ```
 
-### QueryTab (in-memory state)
-
-```js
-{
-  id: '',
-  type: 'query',     // 'query' | 'shell'
-  connectionId: '',
-  database: '',
-  collection: '',
-  query: '',         // Nội dung editor
-  results: [],
-  execTime: 0,       // ms
-  skip: 0,
-  limit: 50,
-  viewMode: 'table'  // 'tree' | 'table' | 'json'
-}
-```
-
 ---
 
-## 4. UI Screens & Features
+## 4. UI Design & Features
 
-### 4.1 Connection Manager (Modal)
+### 4.1 Connection Manager
+- List view for all saved connection profiles.
+- Badges for special attributes (e.g., "SSH" for tunneled connections).
+- Context menu for quick Edit / Remove / Clone.
+- Double-click to initiate connection.
 
-```
-┌──────────────────────────────────────────────────────┐
-│            MongoDB Connections                        │
-├──────────────────────────────────────────────────────┤
-│ [Create] [Edit] [Remove] [Clone]                     │
-│ ─────────────────────────────────────────────────── │
-│  Name          Address          Attributes  Auth      │
-│  abc       localhost:27017  SSH                   │
-│  deff      localhost:27017  SSH                   │
-│  ● uhn   localhost:27017  SSH          ← selected│
-├──────────────────────────────────────────────────────┤
-│                          [Cancel]  [Connect]          │
-└──────────────────────────────────────────────────────┘
-```
-
-**Features:**
-- List connections từ `connections.json`
-- Double-click → connect ngay
-- Drag & drop reorder
-- Badge "SSH" nếu SSH enabled
-- Right-click row → Edit / Remove / Clone
-
----
-
-### 4.2 Connection Settings Dialog (5 Tabs)
-
-#### Tab 1: Connection
-| Field | Type | Default |
-|-------|------|---------|
-| Type | select | Direct Connection / Replica Set |
-| Name | text | "New Connection" |
-| Host | text | localhost |
-| Port | number | 27017 |
-| From URI | text input + Parse button | — |
-
-#### Tab 2: Authentication
-| Field | Type | Default |
-|-------|------|---------|
-| Perform authentication | checkbox | false |
-| Database | text | admin |
-| User Name | text | — |
-| Password | password + toggle | — |
-| Auth Mechanism | select | SCRAM-SHA-1 |
-| Manually specify visible databases | checkbox | false |
-
-#### Tab 3: SSH
-| Field | Type | Default |
-|-------|------|---------|
-| Use SSH tunnel | checkbox | false |
-| SSH Address | host:port | — : 22 |
-| SSH User Name | text | — |
-| SSH Auth Method | select | Password / Private Key |
-| Private Key | file path + browse | — |
-| Passphrase | password + toggle | — |
-| Ask for passphrase each time | checkbox | false |
-
-#### Tab 4: TLS
-| Field | Type | Default |
-|-------|------|---------|
-| Use TLS protocol | checkbox | false |
-| Authentication Method | select | Self-signed / Use CA Certificate |
-| CA Certificate | file path + browse | — |
-| Use PEM Cert/Key | checkbox | false |
-| Advanced Options → CRL | file path + browse | — |
-| Invalid Hostnames | select | Not Allowed / Allowed |
-
-#### Tab 5: Advanced
-*(Để trống, implement sau nếu cần)*
-
-**Buttons:** `[! Test]` `[Cancel]` `[Save]`
-
----
-
-### 4.3 Main Window Layout
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ 🔲 📁 💾 ▶ ⟳                                              Robo3T   │  ← Toolbar
-├──────────────┬──────────────────────────────────────────────────────┤
-│              │ [× query1] [× query2] [× New Shell]   ← Tabs         │
-│  DB Tree     │ Connection > localhost:27017 > database  ← Breadcrumb │
-│  ─────────   │ ┌───────────────────────────────────────────────┐    │
-│  ▼ Connection │ │ db.getCollection('homes').find({})            │    │
-│    ▼ home    │ └───────────────────────────────────────────────┘    │
-│      Collections│ ◄  0  [50] ►        🌲 📋 📄  ← view toggles     │
-│        cards │ ┌───────────────────────────────────────────────┐    │
-│        homes │ │                                               │    │
-│        ...   │ │           Results Panel                       │    │
-│      Functions│ │                                               │    │
-│      Users   │ └───────────────────────────────────────────────┘    │
-│              │                                                        │
-├──────────────┴──────────────────────────────────────────────────────┤
-│ [Logs]                                                               │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-### 4.4 Context Menus
-
-#### Right-click trên Connection node
-```
-Open Shell
-Refresh
-────────────────
-Create Database
-Server Status
-Host Info
-MongoDB Version
-────────────────
-Show Log
-Disconnect
-```
-
-#### Right-click trên Database node
-```
-Open Shell
-Refresh
-────────────────
-Database Statistics
-Current Operations
-Kill Operation...
-────────────────
-Repair Database...
-Drop Database...
-```
-
-#### Right-click trên Collection node
-```
-View Documents
-────────────────
-Insert Document...
-Update Documents...
-Remove Documents...
-Remove All Documents...
-────────────────
-Rename Collection...
-Duplicate Collection...
-Drop Collection...
-────────────────
-Statistics
-Shard Version
-Shard Distribution
-```
-
----
-
-### 4.5 Results Panel
-
-#### Tree View
-```
-▼ (1) ObjectId("675ab7...") { 12 fields }
-    _id          ObjectId("675ab750...")      ObjectId
-    phone        090xxxxxxx                   String
-    __v          0                            Int32
-    createdAt    2024-12-12 10:13:36.084Z     Date
-    token        eyJhb...                     String
-▼ (2) ObjectId("675ab8...") { 12 fields }
-    ...
-```
-
-#### Table View
-```
-| # | _id        | phone       | status | point | dailyCompleted |
-|---|-----------|-------------|--------|-------|----------------|
-| 1 | ObjectId...| 090xxxxxxx | ready  | 4600  | true           |
-| 2 | ObjectId...| 090xxxxxxx | ready  | 1550  | true           |
-```
-
-#### JSON View
-```json
-[
-  {
-    "_id": { "$oid": "675ab750619b3bd32c3ee47f" },
-    "phone": "090xxxxxxx",
-    "status": "ready"
-  }
-]
-```
-
-#### Type Badges
-| Badge | Color | MongoDB Type |
-|-------|-------|-------------|
-| `ObjectId` | orange | ObjectId |
-| `String` | blue | String |
-| `Int32` | green | Int32/Int64 |
-| `Date` | red/calendar | Date |
-| `Boolean` | purple | Boolean |
-| `Object` | gray | Nested object |
-| `Array` | teal | Array |
-
----
-
-### 4.6 Shell Tab
-
-- Dark Monaco Editor (full screen trong tab)
-- Breadcrumb: Connection > host > database
-- Spawn `mongosh` process nếu available
-- Nếu không có mongosh: hiển thị message hướng dẫn cài
+### 4.2 Connection Settings (5 Tabs)
+1. **Connection**: Basic details (Host, Port, Type). Support for URI parsing.
+2. **Authentication**: SCRAM and other auth mechanisms.
+3. **SSH**: Secure tunneling support via password or private key.
+4. **TLS**: SSL/TLS certificate configuration.
+5. **Advanced**: Performance and driver-specific settings.
 
 ---
 
 ## 5. IPC API (Main ↔ Renderer)
 
-```js
-// Renderer calls → Main handles (plain JS)
-ipcMain.handle('db:connect', (_, conn) => { ... })         // conn = Connection object
-ipcMain.handle('db:disconnect', (_, connId) => { ... })
-ipcMain.handle('db:listDatabases', (_, connId) => { ... })  // returns string[]
-ipcMain.handle('db:listCollections', (_, connId, dbName) => { ... })
-ipcMain.handle('db:runQuery', (_, connId, db, query, skip, limit) => { ... }) // returns { docs, total, time }
-ipcMain.handle('db:serverStatus', (_, connId) => { ... })
-ipcMain.handle('db:createDatabase', (_, connId, name) => { ... })
-ipcMain.handle('db:dropDatabase', (_, connId, name) => { ... })
-ipcMain.handle('db:createCollection', (_, connId, db, name) => { ... })
-ipcMain.handle('db:dropCollection', (_, connId, db, name) => { ... })
-ipcMain.handle('db:renameCollection', (_, connId, db, from, to) => { ... })
-ipcMain.handle('db:insertDocument', (_, connId, db, coll, doc) => { ... })
-ipcMain.handle('db:testConnection', (_, conn) => { ... }) // returns { ok, version }
-
-// Storage
-ipcMain.handle('storage:getConnections', () => { ... })    // returns Connection[]
-ipcMain.handle('storage:saveConnections', (_, conns) => { ... })
-```
-
-### 5.1 Query Engine (Xử lý Aggregate, Find & Method Chaining)
-
-Để hỗ trợ cú pháp giống Robo3T / mongosh (vd: `db.coll.find({}).sort({...}).limit(10)`) mà vẫn dùng Node.js driver, Main process sẽ thực hiện:
-
-1.  **Chaining Parser**: Sử dụng parser để tách chuỗi lệnh thành các phần:
-    *   **Gốc**: `db.collection('name')` hoặc `db.getCollection('name')`
-    *   **Hàm chính**: `find(...)` hoặc `aggregate(...)`
-    *   **Chaining**: `.sort(...)`, `.limit(...)`, `.skip(...)`, `.project(...)`, `.count()`
-2.  **Cơ chế thực thi**:
-    *   Main process sẽ dùng `vm.runInContext` (sandbox) hoặc parser để chuyển đổi chuỗi string thành một "Query Object" trung gian.
-    *   Sau đó map các Key sang hàm của Node.js driver:
-        ```js
-        // Nếu user gõ: db.homes.find({}).sort({createdAt:1}).limit(100)
-        // Hệ thống sẽ thực thi:
-        const cursor = db.collection('homes').find({});
-        cursor.sort({createdAt:1});
-        cursor.limit(Math.min(limit_thu_cong, limit_UI)); // Ưu tiên cái nhỏ hơn hoặc logic phân trang
-        ```
-3.  **Xử lý Xung đột Phân trang**:
-    *   Nếu user gõ `.limit(100)` thủ công nhưng UI đang chọn "50 per page", hệ thống sẽ ưu tiên lệnh thủ công của user cho lần chạy đó.
-    *   **Với Aggregate và pipeline array**:
-        ```js
-        // Nếu user gõ:
-        db.transactions.aggregate([ { $group: { _id: "$name", count: { $sum: 1 } } } ])
-
-        // Hệ thống sẽ parse pipeline và thực thi qua driver:
-        const pipeline = [ { $group: { _id: "$name", count: { $sum: 1 } } } ];
-        // Tự chèn phân trang nếu cần:
-        pipeline.push({ $skip: skip }, { $limit: limit });
-        const docs = await db.collection('transactions').aggregate(pipeline).toArray();
-        ```
-4.  **JSON Support**: Hỗ trợ Shell-style JSON (ObjectId, ISODate) bằng cách dùng `mongodb-query-parser` hoặc `bson` EJSON để user không phải viết chuẩn JSON nghiêm ngặt.
+- `db:connect` / `db:disconnect`
+- `db:listDatabases` / `db:listCollections`
+- `db:runQuery`: Handles command parsing and execution (Find, Aggregate, etc.)
+- `db:serverStatus`: Fetches real-time server metrics.
+- `storage:getConnections` / `storage:saveConnections`: Manages local profile persistence.
 
 ---
 
-## 6. SSH Tunnel Flow
+## 6. SSH Tunneling Implementation
 
-```
-1. Tạo SSH connection tới jump server (ssh2)
-2. Forward local port (random) → MongoDB host:27017
-3. mongodb driver connect tới localhost:{localPort}
-4. Khi disconnect → đóng SSH tunnel
-```
-
-```js
-// Pseudocode
-const tunnel = await createSSHTunnel(sshConfig)
-const localPort = tunnel.localPort  // e.g. 37019
-const client = new MongoClient(`mongodb://localhost:${localPort}`)
-```
+The application establishes a secure SSH connection using `ssh2`, forwards a local random port to the remote MongoDB port, and then instructs the `mongodb` driver to connect to the local forwarded port.
 
 ---
 
-## 7. MongoDB Version Compatibility
+## 7. Development Phases
 
-| MongoDB Version | Status | Notes |
-|----------------|--------|-------|
-| 4.4 | ✅ | Officially supported by driver v6 |
-| 5.0 | ✅ | Officially supported |
-| 6.0 | ✅ | Officially supported |
-| 7.0 | ✅ | Officially supported |
-| 8.0 | ✅ | Officially supported |
+### Phase 1 — MVP
+- Core infrastructure and multi-connection refactor.
+- Basic query editor and result table.
+- Persistent storage for connections.
 
-Driver: `mongodb` npm v6 — same driver used by MongoDB Compass.
+### Phase 2 — Essential Features
+- Results tree view with type badges.
+- Sidebar context menus for DB/Collection management.
+- Breadcrumb navigation and execution timing.
 
----
-
-## 8. Build & Distribution
-
-### 8.1 Dev & Build commands
-
-```bash
-npm run dev       # Electron hot-reload (dev mode)
-npm run build     # Vite bundle (renderer + main)
-npm run dist      # electron-builder → tạo installer
-npm run dist:mac  # macOS only
-npm run dist:win  # Windows only
-npm run dist:linux # Linux only
-```
-
-### 8.2 electron-builder Config (đầy đủ 3 platforms)
-
-```yaml
-# electron-builder.yml
-appId: com.yourname.mongogui
-productName: MongoGUI
-copyright: Copyright © 2025
-
-# ──────────────────────────────
-# macOS
-# ──────────────────────────────
-mac:
-  category: public.app-category.developer-tools
-  target:
-    - target: dmg      # → MongoGUI-1.0.0.dmg
-      arch: [x64, arm64]  # Intel + Apple Silicon (M1/M2/M3)
-  icon: assets/icon.icns
-  hardenedRuntime: true
-  gatekeeperAssess: false
-
-dmg:
-  title: MongoGUI ${version}
-  contents:
-    - x: 130
-      y: 220
-    - x: 410
-      y: 220
-      type: link
-      path: /Applications
-
-# ──────────────────────────────
-# Windows
-# ──────────────────────────────
-win:
-  target:
-    - target: nsis     # → MongoGUI Setup 1.0.0.exe
-      arch: [x64]
-  icon: assets/icon.ico
-
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
-  createStartMenuShortcut: true
-
-# ──────────────────────────────
-# Linux
-# ──────────────────────────────
-linux:
-  target:
-    - target: AppImage  # → MongoGUI-1.0.0.AppImage (universal)
-      arch: [x64]
-    - target: deb       # → mongogui_1.0.0_amd64.deb (Ubuntu/Debian)
-    - target: rpm       # → mongogui-1.0.0.x86_64.rpm (Fedora/RHEL)
-  category: Development
-  icon: assets/icon.png
-
-# ──────────────────────────────
-# Auto Update (GitHub Releases)
-# ──────────────────────────────
-publish:
-  provider: github
-  owner: your-github-username
-  repo: mongo-gui
-
-directories:
-  output: dist
-  buildResources: assets
-```
-
-### 8.3 Output Files
-
-```
-dist/
-├── mac/
-│   ├── MongoGUI-1.0.0-arm64.dmg      ← macOS Apple Silicon (M1/M2/M3)
+### Phase 3 — Advanced Support
+- SSH Tunneling and TLS support.
+- Bundled `mongosh` integration.
+- Automated packaging and auto-update system.
+─ MongoGUI-1.0.0-arm64.dmg      ← macOS Apple Silicon (M1/M2/M3)
 │   ├── MongoGUI-1.0.0-x64.dmg        ← macOS Intel
 │   └── MongoGUI-1.0.0-mac.zip        ← macOS zip (dùng cho auto-update)
 ├── win/

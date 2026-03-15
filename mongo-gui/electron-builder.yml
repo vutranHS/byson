@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: mongo-gui
+appId: com.vutran.leafbase
+productName: LeafBase
 directories:
   buildResources: build
 files:
@@ -11,9 +11,9 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: mongo-gui
+  executableName: leafbase
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${name}-${version}-${arch}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
@@ -24,19 +24,24 @@ mac:
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
   notarize: false
 dmg:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${name}-${version}-${arch}.${ext}
 linux:
   target:
     - AppImage
-    - snap
     - deb
   maintainer: electronjs.org
   category: Utility
 appImage:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${name}-${version}-${arch}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: vutranHS
+  repo: leafbase

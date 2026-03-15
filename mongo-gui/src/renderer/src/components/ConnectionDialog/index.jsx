@@ -35,6 +35,8 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
     hasTls: false,
     tlsAuthMethod: 'Self-signed Certificate',
     tlsCaPath: '',
+    tlsClientCertPath: '',
+    tlsClientKeyPassphrase: '',
 
     // Advanced
     defaultDb: '',
@@ -77,7 +79,7 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
       host: `${formData.host || 'localhost'}:${formData.port || '27017'}`
     }
 
-    // Xoá 2 trường tạm để dữ liệu build JSON đúng cấu trúc mock cũ
+    // Remove temporary fields to ensure the built JSON data matches the old mock structure
     delete finalData.port
 
     if (connection?.id) {
@@ -449,6 +451,50 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
                         </div>
                       </div>
                     )}
+
+                    <div className="h-px bg-border/20 my-1" />
+
+                    <div className="flex gap-4 items-center">
+                      <label className="w-24 text-right whitespace-nowrap">Client Cert/Key:</label>
+                      <div className="flex-1 flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Select .pem file with cert & key..."
+                          value={formData.tlsClientCertPath}
+                          onChange={(e) => updateField('tlsClientCertPath', e.target.value)}
+                          className="flex-1 bg-bg-tertiary border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+                        />
+                        <button
+                          onClick={async () => {
+                            const path = await window.electron.ipcRenderer.invoke(
+                              'dialog:openFile',
+                              {
+                                properties: ['openFile'],
+                                filters: [
+                                  { name: 'PEM Keys', extensions: ['pem', 'key'] },
+                                  { name: 'All Files', extensions: ['*'] }
+                                ]
+                              }
+                            )
+                            if (path) updateField('tlsClientCertPath', path)
+                          }}
+                          className="px-2 py-1 bg-bg-secondary border border-border rounded text-text-secondary hover:text-white transition-colors"
+                        >
+                          ...
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-4 items-center">
+                      <label className="w-24 text-right">Key Passphrase:</label>
+                      <input
+                        type="password"
+                        placeholder="Optional"
+                        value={formData.tlsClientKeyPassphrase}
+                        onChange={(e) => updateField('tlsClientKeyPassphrase', e.target.value)}
+                        className="flex-1 bg-bg-tertiary border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

@@ -233,7 +233,7 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
         </tbody>
       </table>
 
-      {/* Cửa sổ Context Menu */}
+      {/* Context Menu Window */}
       {menuConfig && (
         <div
           ref={menuRef}
