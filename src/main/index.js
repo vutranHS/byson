@@ -63,6 +63,17 @@ app.whenReady().then(() => {
     return null
   })
 
+  ipcMain.handle('shell:openFile', async (_, options) => {
+    const result = await dialog.showOpenDialog({
+      ...options,
+      properties: ['openFile']
+    })
+    if (!result.canceled && result.filePaths.length > 0) {
+      return result.filePaths[0]
+    }
+    return null
+  })
+
   // Initialize IPC listeners for connection settings storage (read/write)
   initStorageHandlers()
 

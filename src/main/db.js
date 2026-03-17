@@ -4,6 +4,10 @@ import { executeMongoshQuery } from './queryRunner'
 import { EJSON } from 'bson'
 import { createSSHTunnel } from './ssh'
 import fs from 'fs'
+import readline from 'readline'
+import csvParser from 'csv-parser'
+import streamJson from 'stream-json'
+import StreamArray from 'stream-json/streamers/StreamArray.js'
 import path from 'path'
 import { Transform, Readable } from 'stream'
 
@@ -728,16 +732,25 @@ export function initDbHandlers() {
           try {
             const serialized = EJSON.serialize(doc)
             if (format === 'json') {
-              // Note: This is still JSONL format but with .json extension if chosen
-              // Proper JSON array streaming requires more state management (commas, brackets)
-              chunk = JSON.stringify(serialized) + '\n'
+              chunk = (processedCount === 1 ? '[\n  ' : ',\n  ') + JSON.stringify(serialized)
             } else if (format === 'csv') {
-              const values = Object.values(doc).map(v => {
+              const keys = Object.keys(doc)
+              const values = keys.map(k => {
+                const v = doc[k]
+                if (v === null || v === undefined) return '""'
                 const str = typeof v === 'object' ? JSON.stringify(v) : String(v)
                 return `"${str.replace(/"/g, '""')}"`
               })
-              chunk = values.join(',') + '\n'
+              const row = values.join(',') + '\n'
+              
+              if (processedCount === 1) {
+                const headers = keys.map(k => `"${String(k).replace(/"/g, '""')}"`)
+                chunk = headers.join(',') + '\n' + row
+              } else {
+                chunk = row
+              }
             } else {
+              // jsonl
               chunk = JSON.stringify(serialized) + '\n'
             }
           } catch (e) {
@@ -755,6 +768,16 @@ export function initDbHandlers() {
           }
 
           callback(null, chunk)
+        },
+        flush(callback) {
+          if (format === 'json') {
+            if (processedCount === 0) {
+              this.push('[]')
+            } else {
+              this.push('\n]')
+            }
+          }
+          callback()
         }
       })
 
@@ -814,6 +837,245 @@ export function initDbHandlers() {
     } finally {
       if (exportClient) exportClient.close()
       if (exportTunnel) exportTunnel.close()
+    }
+  })
+
+  // Import Collection Logic
+  ipcMain.handle('db:importCollection', async (event, { connId, dbName, collectionName, sourceType, filePath, clipboardData, format, options = {} }) => {
+    let importClient = null
+    let importTunnel = null
+
+    try {
+      const configRes = await Promise.resolve(ipcMain.handlers ? ipcMain.handlers['storage:getConnection'](null, connId) : { ok: false, error: 'Cannot find storage handler' })
+      // Since handlers mapping might not exist or be accessible directly across electron versions, let's use the local store.
+      // Actually we have a get connection store logic in index.js, but since db.js is cleanly separated, we need to get the config differently.
+      // Wait, in db:exportCollection we did:
+      // const configRes = await ipcMain.handlers['storage:getConnection']... wait no, we didn't!
+      // In exportCollection we accept `connId` but wait, `exportCollection` doesn't fetch connConfig! It expects `connId` but wait...
+      // Let's look at exportCollection again!
+      // Ah. In db.js `handle('db:exportCollection', async (...) => { ... const client = activeClients[connId].client; ... })`
+      // Wait! I can just use the ALREADY EXISTING activeClients[connId] to get the connection details, but we wanted a separate client for resilience.
+      // To get `uri`, I can use `activeClients[connId].client.s.url` etc. But how did I do it in exportCollection?
+      // I just used `activeClients[connId].client` and created a query directly! 
+      
+      // Wait, let's look at how export was implemented:
+      /*
+      const state = activeClients[connId]
+      if (!state) throw new Error('Not connected')
+      const client = state.client
+      const db = client.db(dbName)
+      const collection = db.collection(collectionName)
+      */
+      // For Import we can ALSO use the main client if we insertMany with await, it blocks only that cursor but connection multiplexes multiplexes async requests natively. So it's fine! 
+      
+      const state = activeClients[connId]
+      if (!state) throw new Error('Not connected to database')
+      
+      const db = state.client.db(dbName)
+      const collection = db.collection(collectionName)
+
+      const win = require('electron').BrowserWindow.fromWebContents(event.sender)
+
+      let processedCount = 0
+      let successCount = 0
+      let failedCount = 0
+      let lastReportedTime = 0
+      const batchSize = options.batchSize || 1000
+      let batch = []
+
+      let totalBytes = 0
+      let inputStream
+      if (sourceType === 'file') {
+        const stats = fs.statSync(filePath)
+        totalBytes = stats.size || 1
+        inputStream = fs.createReadStream(filePath)
+      } else {
+        const buf = Buffer.from(clipboardData || '', 'utf8')
+        totalBytes = buf.length || 1
+        inputStream = Readable.from(buf)
+      }
+
+      const flushBatch = async () => {
+        if (batch.length === 0) return
+        try {
+          // ordered: false allows continuing insert even if some documents fail (e.g. unique index violation)
+          const res = await collection.insertMany(batch, { ordered: !options.stopOnError })
+          successCount += res.insertedCount
+        } catch (err) {
+          if (options.stopOnError) throw err
+          
+          if (err.writeErrors) {
+            // WriteErrors contain details about which ones failed. The successful ones still get inserted (if ordered:false)
+            successCount += err.insertedDocs ? err.insertedDocs.length : 0
+            failedCount += err.writeErrors.length
+          } else {
+            // If it's a catastrophic error not returning writeErrors
+            failedCount += batch.length
+          }
+        }
+        batch = []
+      }
+
+      const reportProgress = (force = false) => {
+        if (force || Date.now() - lastReportedTime > 200) {
+          let perc = 0
+          if (force) {
+            perc = 100
+          } else if (sourceType === 'file' && inputStream && inputStream.bytesRead) {
+            perc = Math.round((inputStream.bytesRead / totalBytes) * 100)
+          }
+
+          win.webContents.send('db:importProgress', {
+            processed: processedCount,
+            success: successCount,
+            failed: failedCount,
+            percentage: Math.min(perc, 100)
+          })
+          lastReportedTime = Date.now()
+        }
+      }
+
+      const runImport = async () => {
+        let iterator
+        if (format === 'csv') {
+          iterator = inputStream.pipe(csvParser())
+        } else if (format === 'jsonl') {
+          const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
+          iterator = rl
+        } else if (format === 'json') {
+          iterator = inputStream.pipe(streamJson.parser()).pipe(StreamArray.streamArray())
+        }
+
+        for await (const chunk of iterator) {
+          let doc
+          try {
+            if (format === 'json') {
+              doc = EJSON.deserialize(chunk.value)
+            } else if (format === 'jsonl') {
+              let line = chunk.trim()
+              if (!line) continue
+              if (line.endsWith(',')) line = line.slice(0, -1)
+              doc = EJSON.parse(line)
+            } else {
+              // csv
+              // Optional: csv columns might be stringified JSON from export, but EJSON.deserialize safely ignores flats
+              doc = EJSON.deserialize(chunk)
+            }
+
+            if (!doc || Object.keys(doc).length === 0) continue
+
+            // Filter out fields if user made a specific selection
+            if (options.selectedFields) {
+              const filteredDoc = {}
+              const selectedSet = new Set(options.selectedFields)
+              for (const k of Object.keys(doc)) {
+                if (selectedSet.has(k)) {
+                  filteredDoc[k] = doc[k]
+                }
+              }
+              doc = filteredDoc
+            }
+
+            if (Object.keys(doc).length === 0) continue
+
+            batch.push(doc)
+            processedCount++
+            reportProgress()
+
+            if (batch.length >= batchSize) {
+              await flushBatch()
+            }
+          } catch (e) {
+            failedCount++
+            if (options.stopOnError) throw e
+          }
+        }
+
+        if (batch.length > 0) {
+          await flushBatch()
+        }
+
+        reportProgress(true)
+      }
+
+      await runImport()
+      return { ok: true }
+
+    } catch (err) {
+      console.error('[Import Error]', err)
+      return { ok: false, error: err.message }
+    } finally {
+      // Don't close the active connection instance here because it's shared
+    }
+  })
+
+  // Preview Import Logic
+  ipcMain.handle('db:previewImport', async (event, { sourceType, filePath, clipboardData, format }) => {
+    try {
+      if (sourceType === 'file' && !filePath) {
+        return { ok: true, data: EJSON.serialize([]) }
+      }
+      if (sourceType === 'clipboard' && !clipboardData) {
+        return { ok: true, data: EJSON.serialize([]) }
+      }
+
+      let inputStream
+      if (sourceType === 'file') {
+        if (!fs.existsSync(filePath)) throw new Error('File not found')
+        inputStream = fs.createReadStream(filePath)
+      } else {
+        const buf = Buffer.from(clipboardData || '', 'utf8')
+        inputStream = Readable.from(buf)
+      }
+
+      let iterator
+      if (format === 'csv') {
+        iterator = inputStream.pipe(csvParser())
+      } else if (format === 'jsonl') {
+        const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
+        iterator = rl
+      } else if (format === 'json') {
+        iterator = inputStream.pipe(streamJson.parser()).pipe(StreamArray.streamArray())
+      }
+
+      const previewDocs = []
+      
+      for await (const chunk of iterator) {
+        let doc
+        try {
+          if (format === 'json') {
+            doc = EJSON.deserialize(chunk.value)
+          } else if (format === 'jsonl') {
+            let line = chunk.trim()
+            if (!line) continue
+            if (line.endsWith(',')) line = line.slice(0, -1)
+            doc = EJSON.parse(line)
+          } else {
+            doc = EJSON.deserialize(chunk)
+          }
+
+          if (!doc || Object.keys(doc).length === 0) continue
+
+          previewDocs.push(doc)
+          if (previewDocs.length >= 5) {
+            break // We only need 5 docs for preview
+          }
+        } catch (e) {
+          // Ignore parsing errors for preview chunks
+          console.error('[Preview] Chunk error:', e.message)
+        }
+      }
+
+      // Clean up stream to avoid locking files since we break early
+      if (inputStream && typeof inputStream.destroy === 'function') {
+        inputStream.destroy()
+      }
+
+      // Return a stringified payload so the frontend can safely JSON.parse it.
+      return { ok: true, data: JSON.stringify(EJSON.serialize(previewDocs)) }
+    } catch (err) {
+      console.error('[Preview Error]', err)
+      return { ok: false, error: err.message }
     }
   })
 }
