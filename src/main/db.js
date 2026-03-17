@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron'
+import vm from 'vm'
 import { MongoClient, ServerApiVersion } from 'mongodb'
 import { executeMongoshQuery } from './queryRunner'
 import { EJSON } from 'bson'
@@ -675,7 +676,7 @@ export function initDbHandlers() {
   // Export / Import (Stream Engine)
   // ==========================================
 
-  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, query = {}, projection = {}, options = {} }) => {
+  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, query = {}, queryString = null, projection = {}, options = {} }) => {
     const { BrowserWindow } = require('electron')
     const win = BrowserWindow.fromWebContents(event.sender)
     
@@ -701,19 +702,51 @@ export function initDbHandlers() {
       
       await exportClient.connect()
       const db = exportClient.db(dbName)
-      const collection = db.collection(collectionName)
       
-      // 2. Prepare the stream
-      const totalDocs = await collection.countDocuments(query)
-      console.log(`[Export] Total documents to export: ${totalDocs}`)
-
-      if (totalDocs === 0) {
-        console.log('[Export] No documents found, finishing early.')
-        return { ok: true, count: 0 }
+      let cursor
+      if (queryString) {
+        console.log(`[Export] Executing raw query string for export...`)
+        // Simple sandbox for extracting cursor
+        const sandbox = {
+          db: {
+            getCollection: (name) => db.collection(name),
+            collection: (name) => db.collection(name)
+          }
+        }
+        vm.createContext(sandbox)
+        const script = new vm.Script(queryString)
+        const result = script.runInContext(sandbox)
+        
+        // result should be what .find() or .aggregate() returns? 
+        // In our queryRunner, .find() returns a FindCursorBuilder. 
+        // But here we are using the raw mongodb driver objects in the sandbox.
+        // So .find() returns a real Cursor.
+        cursor = result
+      } else {
+        cursor = db.collection(collectionName).find(query, { projection })
       }
 
-      const cursor = collection.find(query, { projection })
-        .batchSize(1000)
+      if (!cursor || typeof cursor.toArray !== 'function') {
+        throw new Error('Query did not return a valid cursor. Make sure to use .find() or .aggregate()')
+      }
+
+      // 2. Prepare the stream
+      // countDocuments might not work on all results (like aggregation), 
+      // but for simple finds it's fine. 
+      let totalDocs = 0
+      try {
+        if (queryString) {
+            // Hard to get total for arbitrary string without executing, 
+            // but we can try a simple count if it's a cursor
+            totalDocs = await cursor.clone().count()
+        } else {
+            totalDocs = await db.collection(collectionName).countDocuments(query)
+        }
+      } catch (e) {
+        console.warn('[Export] Could not get total count accurately:', e.message)
+      }
+
+      console.log(`[Export] Total documents to export (estimed): ${totalDocs}`)
 
       if (options.sort) cursor.sort(options.sort)
       if (options.skip) cursor.skip(options.skip)
@@ -762,7 +795,7 @@ export function initDbHandlers() {
             win.webContents.send('db:exportProgress', {
               processed: processedCount,
               total: totalDocs,
-              percentage: Math.round((processedCount / totalDocs) * 100)
+              percentage: totalDocs > 0 ? Math.round((processedCount / totalDocs) * 100) : 0
             })
             lastReportedTime = Date.now()
           }

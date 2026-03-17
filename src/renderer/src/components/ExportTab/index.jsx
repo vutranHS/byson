@@ -25,6 +25,12 @@ const ExportTab = ({ tab }) => {
   const [limit, setLimit] = useState(100)
   const [status, setStatus] = useState('idle') // idle, exporting, done, error
   const [error, setError] = useState(null)
+  
+  // Initialize query filter with stringified tab.initialQuery if provided
+  const [queryFilter, setQueryFilter] = useState(() => {
+    if (tab.initialQuery) return typeof tab.initialQuery === 'string' ? tab.initialQuery : JSON.stringify(tab.initialQuery, null, 2)
+    return '{}'
+  })
 
   const { connId, dbName, collectionName } = tab
 
@@ -35,10 +41,16 @@ const ExportTab = ({ tab }) => {
 
   const fetchPreview = async () => {
     try {
+      let finalQuery = queryFilter.trim()
+      // If the query doesn't look like a full mongosh command, wrap it
+      if (!finalQuery.toLowerCase().startsWith('db.')) {
+        finalQuery = `db.getCollection('${collectionName}').find(${finalQuery || '{}'})`
+      }
+
       const res = await window.electron.ipcRenderer.invoke('db:runQuery', {
         connId,
         dbName,
-        query: `db.getCollection('${collectionName}').find({}).limit(5)`,
+        query: finalQuery,
         options: { limit: 5 }
       })
       if (res.ok) {
@@ -90,12 +102,36 @@ const ExportTab = ({ tab }) => {
     }
 
     try {
+      let parsedQuery = {}
+      let isRawQueryString = false
+      const trimmedQuery = queryFilter.trim()
+
+      if (trimmedQuery.toLowerCase().startsWith('db.')) {
+        isRawQueryString = true
+      } else {
+        try {
+          parsedQuery = JSON.parse(trimmedQuery)
+        } catch (e) {
+          try {
+            // Fallback to eval to support relaxed JSON/JS objects
+            parsedQuery = eval(`(${trimmedQuery})`)
+          } catch(e2) {
+             setError('Invalid Query format. Must be valid JSON or JS Object.')
+             setStatus('error')
+             setIsExporting(false)
+             return
+          }
+        }
+      }
+
       const result = await window.electron.ipcRenderer.invoke('db:exportCollection', {
         connId,
         dbName,
         collectionName,
         filePath,
         format,
+        query: isRawQueryString ? null : parsedQuery,
+        queryString: isRawQueryString ? trimmedQuery : null,
         projection
       })
 
@@ -174,10 +210,28 @@ const ExportTab = ({ tab }) => {
             </div>
           </section>
 
-          {/* 2. Destination */}
+          {/* 2. Filter Query */}
           <section className="bg-bg-secondary/50 border border-border rounded-xl p-5">
             <h3 className="text-xs font-bold text-text-secondary uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Monitor size={14} /> 2. Destination
+              <Settings size={14} /> 2. Filter Query
+            </h3>
+            <div className="space-y-3">
+              <textarea
+                value={queryFilter}
+                onChange={(e) => setQueryFilter(e.target.value)}
+                placeholder={'{\n  "status": "active"\n}'}
+                className="w-full h-32 bg-bg-tertiary border border-border rounded p-3 text-xs text-text-primary focus:outline-none focus:border-accent resize-none font-mono scrollbar-premium"
+              />
+              <p className="text-[10px] text-text-secondary">
+                Provide a valid JSON or Javascript query object. Leave as {'{}'} to export all documents.
+              </p>
+            </div>
+          </section>
+
+          {/* 3. Destination */}
+          <section className="bg-bg-secondary/50 border border-border rounded-xl p-5">
+            <h3 className="text-xs font-bold text-text-secondary uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Monitor size={14} /> 3. Destination
             </h3>
             <div className="space-y-3">
               <div className="flex gap-2">
@@ -198,10 +252,10 @@ const ExportTab = ({ tab }) => {
             </div>
           </section>
 
-          {/* 3. Field Mapping */}
+          {/* 4. Field Mapping */}
           <section className="bg-bg-secondary/50 border border-border rounded-xl p-5 h-64 flex flex-col">
             <h3 className="text-xs font-bold text-text-secondary uppercase tracking-widest mb-4 flex items-center justify-between">
-              <span className="flex items-center gap-2"><TableIcon size={14} /> 3. Field Mapping</span>
+              <span className="flex items-center gap-2"><TableIcon size={14} /> 4. Field Mapping</span>
               <button 
                 onClick={() => setSelectedFields(selectedFields.length === allFields.length ? [] : allFields)}
                 className="text-[10px] text-accent hover:underline"

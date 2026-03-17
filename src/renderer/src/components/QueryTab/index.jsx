@@ -11,7 +11,8 @@ import {
   ListTree,
   FileJson,
   Database,
-  GripHorizontal
+  GripHorizontal,
+  Download
 } from 'lucide-react'
 import JsonTableView from './JsonTableView'
 import JsonTreeView from './JsonTreeView'
@@ -42,7 +43,7 @@ export default function QueryTab({ tab }) {
   const { connections } = useConnectionStore()
   const activeConn = connections.find((c) => c.id === tab.connId)
   const dbVersionRef = useRef(activeConn?.version || 'unknown')
-  
+
   // Sync dbVersionRef when activeConn changes
   if (activeConn?.version && activeConn.version !== dbVersionRef.current) {
     dbVersionRef.current = activeConn.version
@@ -145,7 +146,7 @@ export default function QueryTab({ tab }) {
             { name: 'listSearchIndexes', minVer: '7.0.0', label: 'listSearchIndexes()', snippet: 'listSearchIndexes()', desc: 'List Atlas search indexes.' },
             { name: 'createSearchIndex', minVer: '7.0.0', label: 'createSearchIndex(desc)', snippet: 'createSearchIndex({ name: \'$1\', definition: { $2 } })', desc: 'Create an Atlas search index.' }
           ]
-          
+
           coreMethods.filter(m => isSupported(m.minVer, dbVersion)).forEach(method => {
             suggestions.push({
               label: method.label,
@@ -233,9 +234,25 @@ export default function QueryTab({ tab }) {
       <div className="border-b border-border flex flex-col relative shrink-0" style={{ height: editorHeight }}>
         <div className="absolute top-2 right-4 z-10 flex gap-2">
           <button
+            onClick={() => {
+              useTabStore.getState().openTab({
+                type: 'export',
+                connId: tab.connId,
+                dbName: tab.dbName,
+                collectionName: tab.collectionName,
+                initialQuery: tab.query // Pass the current query
+              })
+            }}
+            title="Export this query result"
+            className="bg-bg-tertiary border border-border hover:bg-bg-hover text-text-primary text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition-colors"
+          >
+            <Download size={12} className="text-accent" /> Export Query
+          </button>
+
+          <button
             onClick={() => executeTabQuery(tab.id)}
             disabled={tab.loading}
-            className="bg-accent hover:bg-accent-hover text-white text-xs px-3 py-1.5 rounded flex items-center gap-1 shadow disabled:opacity-50"
+            className="bg-accent hover:bg-accent-hover text-white text-xs px-3 py-1.5 rounded flex items-center gap-1 shadow disabled:opacity-50 transition-colors"
           >
             <span>▶</span> {tab.loading ? 'Running...' : 'Run'}
           </button>
