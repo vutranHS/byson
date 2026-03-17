@@ -55,10 +55,10 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
-  ipcMain.handle('dialog:openFile', async (_, options) => {
-    const result = await dialog.showOpenDialog(options)
-    if (!result.canceled && result.filePaths.length > 0) {
-      return result.filePaths[0]
+  ipcMain.handle('shell:saveFile', async (_, options) => {
+    const result = await dialog.showSaveDialog(options)
+    if (!result.canceled && result.filePath) {
+      return result.filePath
     }
     return null
   })

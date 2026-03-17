@@ -3,6 +3,9 @@ import { MongoClient, ServerApiVersion } from 'mongodb'
 import { executeMongoshQuery } from './queryRunner'
 import { EJSON } from 'bson'
 import { createSSHTunnel } from './ssh'
+import fs from 'fs'
+import path from 'path'
+import { Transform, Readable } from 'stream'
 
 // Store active connection instances (Mapping ConnectionId -> { client, tunnel })
 const activeClients = {}
@@ -661,6 +664,156 @@ export function initDbHandlers() {
     } catch (err) {
       // collStats may fail on empty collections, return empty gracefully
       return { ok: false, error: err.message, stats: { indexSizes: {} } }
+    }
+  })
+
+  // ==========================================
+  // Export / Import (Stream Engine)
+  // ==========================================
+
+  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, query = {}, projection = {}, options = {} }) => {
+    const { BrowserWindow } = require('electron')
+    const win = BrowserWindow.fromWebContents(event.sender)
+    
+    let exportClient = null
+    let exportTunnel = null
+    
+    try {
+      const session = activeClients[connId]
+      if (!session) throw new Error('Not connected')
+
+      console.log(`[Export] Starting export for ${dbName}.${collectionName} to ${filePath} (${format})`)
+
+      // 1. Setup a separate client for the export
+      const exportConfig = { 
+        ...session.config,
+        socketTimeoutMS: 0,
+        connectTimeoutMS: 30000
+      }
+      
+      const built = await buildMongoClient(exportConfig)
+      exportClient = built.client
+      exportTunnel = built.tunnel
+      
+      await exportClient.connect()
+      const db = exportClient.db(dbName)
+      const collection = db.collection(collectionName)
+      
+      // 2. Prepare the stream
+      const totalDocs = await collection.countDocuments(query)
+      console.log(`[Export] Total documents to export: ${totalDocs}`)
+
+      if (totalDocs === 0) {
+        console.log('[Export] No documents found, finishing early.')
+        return { ok: true, count: 0 }
+      }
+
+      const cursor = collection.find(query, { projection })
+        .batchSize(1000)
+
+      if (options.sort) cursor.sort(options.sort)
+      if (options.skip) cursor.skip(options.skip)
+      if (options.limit) cursor.limit(options.limit)
+
+      const writeStream = fs.createWriteStream(filePath)
+      let processedCount = 0
+      let lastReportedTime = Date.now()
+
+      const transformStream = new Transform({
+        writableObjectMode: true,
+        transform(doc, encoding, callback) {
+          processedCount++
+          
+          let chunk = ''
+          try {
+            const serialized = EJSON.serialize(doc)
+            if (format === 'json') {
+              // Note: This is still JSONL format but with .json extension if chosen
+              // Proper JSON array streaming requires more state management (commas, brackets)
+              chunk = JSON.stringify(serialized) + '\n'
+            } else if (format === 'csv') {
+              const values = Object.values(doc).map(v => {
+                const str = typeof v === 'object' ? JSON.stringify(v) : String(v)
+                return `"${str.replace(/"/g, '""')}"`
+              })
+              chunk = values.join(',') + '\n'
+            } else {
+              chunk = JSON.stringify(serialized) + '\n'
+            }
+          } catch (e) {
+            console.error('[Export] Transform error for document:', e)
+            return callback(e)
+          }
+
+          if (Date.now() - lastReportedTime > 200) {
+            win.webContents.send('db:exportProgress', {
+              processed: processedCount,
+              total: totalDocs,
+              percentage: Math.round((processedCount / totalDocs) * 100)
+            })
+            lastReportedTime = Date.now()
+          }
+
+          callback(null, chunk)
+        }
+      })
+
+      // Handle stream events by awaiting the promise
+      return await new Promise((resolve, reject) => {
+        writeStream.on('finish', () => {
+          console.log(`[Export] Successfully exported ${processedCount} documents.`)
+          win.webContents.send('db:exportProgress', { processed: processedCount, total: totalDocs, percentage: 100 })
+          resolve({ ok: true, count: processedCount })
+        })
+        
+        writeStream.on('error', (err) => {
+          console.error('[Export] Write Stream Error:', err)
+          reject(err)
+        })
+
+        transformStream.on('error', (err) => {
+          console.error('[Export] Transform Stream Error:', err)
+          reject(err)
+        })
+
+        // In mongodb 7.x, the cursor is an AsyncIterable.
+        // We use Readable.from() to convert it into a standard Node.js Readable stream.
+        const mongoStream = Readable.from(cursor)
+        
+        mongoStream.on('error', (err) => {
+          console.error('[Export] MongoDB Cursor Error (Readable.from):', err)
+          reject(err)
+        })
+
+        mongoStream.on('data', (doc) => {
+          if (processedCount < 5) {
+            console.log(`[Export] Sample doc received: ${JSON.stringify(doc).substring(0, 100)}...`)
+          }
+        })
+
+        // Pipe: MongoDB -> Transform -> File
+        // Make sure we catch errors at EVERY stage
+        mongoStream
+          .pipe(transformStream)
+          .on('error', (e) => {
+            console.error('[Export] Pipe Error at Transform:', e)
+            reject(e)
+          })
+          .pipe(writeStream)
+          .on('error', (e) => {
+            console.error('[Export] Pipe Error at WriteStream:', e)
+            reject(e)
+          })
+        
+      })
+
+    } catch (err) {
+
+      console.error('Export Error:', err)
+      return { ok: false, error: err.message }
+    } finally {
+      if (exportClient) exportClient.close()
+      if (exportTunnel) exportTunnel.close()
     }
   })
 }

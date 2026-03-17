@@ -22,8 +22,10 @@ import {
   BarChart,
   TerminalSquare,
   Activity,
-  X
+  X,
+  Download
 } from 'lucide-react'
+import ExportTab from './components/ExportTab'
 
 function App() {
   const [showManager, setShowManager] = useState(false)
@@ -402,13 +404,11 @@ function App() {
                   {/* Tab Content */}
                   {tabs
                     .filter((t) => t.id === activeTabId)
-                    .map((tab) => (
-                      tab.type === 'indexes' ? (
-                        <IndexTab key={tab.id} tab={tab} />
-                      ) : (
-                        <QueryTab key={tab.id} tab={tab} />
-                      )
-                    ))}
+                    .map((tab) => {
+                      if (tab.type === 'indexes') return <IndexTab key={tab.id} tab={tab} />
+                      if (tab.type === 'export') return <ExportTab key={tab.id} tab={tab} />
+                      return <QueryTab key={tab.id} tab={tab} />
+                    })}
                 </>
               )}
             </div>
@@ -732,6 +732,21 @@ function App() {
                 className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2 font-medium"
               >
                 <FileText size={13} /> View Documents
+              </button>
+              <button
+                onClick={() => {
+                  openTab({
+                    title: `Export: ${sidebarMenu.colName}`,
+                    type: 'export',
+                    connId: sidebarMenu.connId,
+                    dbName: sidebarMenu.dbName,
+                    collectionName: sidebarMenu.colName
+                  })
+                  setSidebarMenu(null)
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <Download size={13} className="text-accent" /> Export Documents...
               </button>
               <div className="h-px bg-border my-1" />
               <button

@@ -44,7 +44,8 @@ export const useTabStore = create((set, get) => ({
     if (tabInfo.collectionName) {
       if (tabInfo.type === 'indexes') {
         useConnectionStore.getState().refreshIndexes(tabInfo.connId, tabInfo.dbName, tabInfo.collectionName)
-      } else {
+      } else if (tabInfo.type !== 'export') {
+        // Don't auto-run for export tabs as they have their own preview logic
         setTimeout(() => get().executeTabQuery(newId), 50)
       }
     }
