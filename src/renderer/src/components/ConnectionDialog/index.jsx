@@ -38,6 +38,11 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
     tlsClientCertPath: '',
     tlsClientKeyPassphrase: '',
 
+    // URI
+    connectionString: '',
+    useSrv: false,
+    useStableApi: false,
+
     // Advanced
     defaultDb: '',
     replicaSet: '',
@@ -111,9 +116,99 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
+  const handleParseURI = () => {
+    const uri = formData.connectionString.trim()
+    if (!uri) return
+
+    try {
+      // Standard URL constructor fails with multi-host strings (commas).
+      // We'll use a manual split approach for robustness.
+      const protocolMatch = uri.match(/^mongodb(?:\+srv)?:\/\//)
+      if (!protocolMatch) throw new Error('Missing protocol (mongodb:// or mongodb+srv://)')
+      
+      const protocol = protocolMatch[0]
+      const isSrv = protocol.includes('+srv')
+      const afterProtocol = uri.substring(protocol.length)
+      
+      // Split into [credentials@hosts, query]
+      const [mainPart, queryPart] = afterProtocol.split('/?')
+      const [authAndHosts, dbPart] = mainPart.split('/')
+      
+      let credentials = ''
+      let hostsPart = ''
+      
+      if (authAndHosts.includes('@')) {
+        const parts = authAndHosts.split('@')
+        hostsPart = parts.pop()
+        credentials = parts.join('@')
+      } else {
+        hostsPart = authAndHosts
+      }
+
+      const newForm = { ...formData, useSrv: isSrv }
+      
+      if (isSrv) {
+        newForm.type = 'Replica Set'
+      }
+
+      // 1. Process Credentials
+      if (credentials) {
+        const [user, pass] = credentials.split(':')
+        newForm.hasAuth = true
+        newForm.authUser = decodeURIComponent(user || '')
+        newForm.authPass = decodeURIComponent(pass || '')
+      }
+
+      // 2. Process Hosts
+      if (hostsPart.includes(',')) {
+        newForm.host = hostsPart
+        newForm.type = 'Replica Set'
+        newForm.port = ''
+      } else {
+        const [h, p] = hostsPart.split(':')
+        newForm.host = h || 'localhost'
+        newForm.port = p || (isSrv ? '' : '27017')
+      }
+
+      // 3. Process DB
+      if (dbPart) {
+        newForm.defaultDb = dbPart
+      }
+
+      // 4. Process Query Params
+      if (queryPart) {
+        const params = new URLSearchParams(queryPart)
+        if (params.has('replicaSet')) {
+          newForm.replicaSet = params.get('replicaSet')
+          newForm.type = 'Replica Set'
+        }
+        
+        const isAtlas = uri.includes('mongodb.net')
+        if (params.get('ssl') === 'true' || params.get('tls') === 'true' || isAtlas) {
+          newForm.hasTls = true
+        }
+
+        if (params.has('authSource')) {
+          newForm.authDb = params.get('authSource')
+        } else if (isAtlas) {
+          newForm.authDb = 'admin'
+        }
+      }
+
+      // Clear connectionString after parsing so the form takes over (handles encoding better)
+      newForm.connectionString = ''
+      
+      setFormData(newForm)
+      setActiveTab('connection') // Switch back to connection to show results
+    } catch (e) {
+      setTestStatus({ error: `Invalid URI: ${e.message}` })
+    }
+  }
+
   if (!isOpen) return null
 
   const tabs = [
+    { id: 'uri', label: 'URI' },
     { id: 'connection', label: 'Connection' },
     { id: 'auth', label: 'Authentication' },
     { id: 'ssh', label: 'SSH' },
@@ -162,6 +257,29 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
 
         {/* Tab Content Area */}
         <div className="flex-1 bg-bg-secondary p-4 min-h-[350px]">
+          {activeTab === 'uri' && (
+            <div className="flex flex-col gap-4 text-sm text-text-secondary animate-in fade-in duration-200">
+              <div className="flex flex-col gap-2">
+                <label className="font-medium text-text-primary">MongoDB Connection URI</label>
+                <textarea
+                  value={formData.connectionString}
+                  onChange={(e) => updateField('connectionString', e.target.value)}
+                  placeholder="mongodb+srv://user:pass@host/db?options..."
+                  className="w-full h-32 bg-bg-tertiary border border-border rounded p-3 text-text-primary font-mono text-xs focus:outline-none focus:border-accent resize-none"
+                />
+                <p className="text-[10px] text-text-secondary">
+                  Tip: Paste your Atlas connection string here and click 'Parse' to auto-fill other tabs.
+                </p>
+                <button
+                  onClick={handleParseURI}
+                  className="mt-2 self-start px-4 py-1.5 bg-bg-tertiary border border-border rounded text-text-primary hover:bg-bg-secondary transition-colors text-xs font-medium"
+                >
+                  Parse URI & Fill Form
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'connection' && (
             <div className="flex flex-col gap-4 text-sm text-text-secondary animate-in fade-in duration-200">
               <div className="flex gap-4 items-center">
@@ -186,19 +304,34 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
               </div>
               <div className="flex gap-4 items-center">
                 <label className="w-24 text-right">Host:</label>
-                <div className="flex-1 flex gap-2">
-                  <input
-                    type="text"
-                    value={formData.host}
-                    onChange={(e) => updateField('host', e.target.value)}
-                    className="flex-1 bg-bg-tertiary border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
-                  />
-                  <input
-                    type="number"
-                    value={formData.port}
-                    onChange={(e) => updateField('port', e.target.value)}
-                    className="w-24 bg-bg-tertiary border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
-                  />
+                <div className="flex-1 flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formData.host}
+                      onChange={(e) => updateField('host', e.target.value)}
+                      className="flex-1 bg-bg-tertiary border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+                    />
+                    {!formData.useSrv && (
+                      <input
+                        type="number"
+                        value={formData.port}
+                        onChange={(e) => updateField('port', e.target.value)}
+                        className="w-24 bg-bg-tertiary border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent"
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="useSrv"
+                      checked={formData.useSrv}
+                      onChange={(e) => updateField('useSrv', e.target.checked)}
+                    />
+                    <label htmlFor="useSrv" className="text-[10px] cursor-pointer">
+                      Use SRV (mongodb+srv://) - Port will be ignored
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -256,10 +389,10 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
                         onChange={(e) => updateField('authMech', e.target.value)}
                         className="flex-1 bg-bg-tertiary border border-border rounded px-2 py-1 text-text-primary outline-none focus:border-accent"
                       >
+                        <option>DEFAULT</option>
                         <option>SCRAM-SHA-1</option>
                         <option>SCRAM-SHA-256</option>
-                        <option>MONGODB-CR</option>
-                        <option>X.509</option>
+                        <option>MONGODB-X509</option>
                       </select>
                     </div>
                   </div>
@@ -535,6 +668,17 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
                   <option>Secondary Preferred</option>
                   <option>Nearest</option>
                 </select>
+              </div>
+              <div className="flex gap-4 items-center ml-32">
+                <input
+                  type="checkbox"
+                  id="useStableApi"
+                  checked={formData.useStableApi}
+                  onChange={(e) => updateField('useStableApi', e.target.checked)}
+                />
+                <label htmlFor="useStableApi" className="text-text-primary cursor-pointer">
+                  Use Stable API (v1) - Recommended for Atlas
+                </label>
               </div>
             </div>
           )}

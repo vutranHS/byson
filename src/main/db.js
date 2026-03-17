@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { MongoClient } from 'mongodb'
+import { MongoClient, ServerApiVersion } from 'mongodb'
 import { executeMongoshQuery } from './queryRunner'
 import { EJSON } from 'bson'
 import { createSSHTunnel } from './ssh'
@@ -8,45 +8,105 @@ import { createSSHTunnel } from './ssh'
 const activeClients = {}
 
 async function buildMongoClient(connConfig) {
+  let uri = ''
   let host = 'localhost'
   let port = 27017
 
-  if (connConfig.host) {
-    const parts = connConfig.host.split(':')
-    host = parts[0]
-    port = parseInt(parts[1]) || port
+  // 1. Determine the base URI and host/port for potential SSH tunneling
+  if (connConfig.connectionString) {
+    uri = connConfig.connectionString
+    // Attempt to extract the first host/port from the URI for SSH tunneling
+    try {
+      let pseudoUri = uri
+      if (uri.startsWith('mongodb+srv://')) {
+        pseudoUri = uri.replace('mongodb+srv://', 'http://')
+      } else if (uri.startsWith('mongodb://')) {
+        pseudoUri = uri.replace('mongodb://', 'http://')
+      } else if (!uri.includes('://')) {
+        pseudoUri = `http://${uri}`
+      }
+      
+      const parsed = new URL(pseudoUri)
+      host = parsed.hostname
+      port = parseInt(parsed.port) || 27017
+    } catch (e) {
+      console.warn('Could not parse connection string for SSH host detection:', e.message)
+    }
+  } else {
+    if (connConfig.host) {
+      const parts = connConfig.host.split(':')
+      host = parts[0]
+      port = parseInt(parts[1]) || port
+    }
+
+    const isSrv = !!connConfig.useSrv
+    uri = isSrv ? 'mongodb+srv://' : 'mongodb://'
+
+    if (connConfig.hasAuth && connConfig.authUser) {
+      const user = encodeURIComponent(connConfig.authUser)
+      const pass = encodeURIComponent(connConfig.authPass)
+      uri += `${user}:${pass}@`
+    }
+
+    uri += host
+    const isMultiHost = host.includes(',')
+    if (!isSrv && !isMultiHost) uri += `:${port}`
+    uri += '/'
+
+    if (connConfig.hasAuth && connConfig.authDb) {
+      uri += `${connConfig.authDb}`
+    } else if (connConfig.defaultDb) {
+      uri += `${connConfig.defaultDb}`
+    }
+
+    if (connConfig.hasAuth && connConfig.authDb) {
+      if (!uri.includes('?')) uri += '?'
+      else uri += '&'
+      uri += `authSource=${connConfig.authDb}`
+    }
   }
 
+  // 2. Handle SSH Tunneling
   let tunnel = null
   if (connConfig.hasSsh) {
     tunnel = await createSSHTunnel(connConfig, host, port)
-    host = '127.0.0.1'
-    port = tunnel.localPort
+    const localHost = '127.0.0.1'
+    const localPort = tunnel.localPort
+    
+    if (connConfig.connectionString) {
+      // Replace the host in the URI with the local tunnel endpoint
+      // This is a bit complex for multi-host URIs, but usually SSH is used for single-node access
+      uri = uri.replace(host, localHost).replace(`:${port}`, `:${localPort}`)
+    } else {
+      // Re-build or patch URI for local tunnel
+      uri = uri.replace(host, localHost)
+      if (uri.includes('mongodb+srv')) {
+         uri = uri.replace('mongodb+srv', 'mongodb') // SRV doesn't work with localhost
+      }
+      uri = uri.replace(`:${port}`, `:${localPort}`)
+      if (!uri.includes(`:${localPort}`)) {
+         uri = uri.replace(`${localHost}/`, `${localHost}:${localPort}/`)
+      }
+    }
   }
 
-  let uri = 'mongodb://'
-  if (connConfig.hasAuth && connConfig.authUser) {
-    const user = encodeURIComponent(connConfig.authUser)
-    const pass = encodeURIComponent(connConfig.authPass)
-    uri += `${user}:${pass}@`
-  }
-
-  uri += `${host}:${port}/`
-
-  if (connConfig.hasAuth && connConfig.authDb) {
-    uri += `${connConfig.authDb}`
-  } else if (connConfig.defaultDb) {
-    uri += `${connConfig.defaultDb}`
-  }
-
+  // 3. Configure Driver Options
   const mongoOptions = { serverSelectionTimeoutMS: 5000 }
 
-  if (connConfig.hasTls) {
+  const isAtlas = uri.includes('mongodb.net') || uri.includes('mongodb+srv')
+
+  if (connConfig.hasTls || uri.includes('ssl=true') || uri.includes('tls=true') || isAtlas) {
+    // For Atlas, simple tls: true is usually enough. 
+    // Redundant options can sometimes cause handshake alerts in strict environments.
     mongoOptions.tls = true
+    
     if (connConfig.tlsAuthMethod === 'CA Certificate' && connConfig.tlsCaPath) {
       mongoOptions.tlsCAFile = connConfig.tlsCaPath
     } else if (connConfig.tlsAuthMethod === 'Self-signed Certificate') {
-      mongoOptions.tlsAllowInvalidCertificates = true
+      // ONLY set this if explicitly requested and NOT Atlas (Atlas has valid certs)
+      if (!isAtlas) {
+        mongoOptions.tlsAllowInvalidCertificates = true
+      }
     }
 
     if (connConfig.tlsClientCertPath) {
@@ -57,20 +117,37 @@ async function buildMongoClient(connConfig) {
     }
   }
 
-  if (connConfig.hasAuth && connConfig.authMech) {
-    if (connConfig.authMech === 'SCRAM-SHA-256') mongoOptions.authMechanism = 'SCRAM-SHA-256'
-    else if (connConfig.authMech === 'MONGODB-CR') mongoOptions.authMechanism = 'MONGODB-CR'
+  if (connConfig.hasAuth && connConfig.authMech && connConfig.authMech !== 'DEFAULT') {
+    // Only pass if it's a known mechanism to avoid driver parse errors
+    const validMechs = ['SCRAM-SHA-1', 'SCRAM-SHA-256', 'MONGODB-X509', 'MONGODB-AWS', 'GSSAPI', 'PLAIN']
+    if (validMechs.includes(connConfig.authMech)) {
+       mongoOptions.authMechanism = connConfig.authMech
+    }
   }
 
-  if (connConfig.type === 'Replica Set' && connConfig.replicaSet) {
-    mongoOptions.replicaSet = connConfig.replicaSet
+  // Determine if we should use directConnection
+  // Atlas and Replica Sets should NOT use directConnection
+  const isReplicaSet = connConfig.type === 'Replica Set' || (connConfig.replicaSet && connConfig.replicaSet.length > 0) || uri.includes('replicaSet=')
+
+  if (isReplicaSet || isAtlas) {
+    if (connConfig.replicaSet) mongoOptions.replicaSet = connConfig.replicaSet
+    mongoOptions.directConnection = false
   } else {
-    // Force direct connection to avoid roaming to discovered RS nodes (which might point to localhost)
+    // Only use directConnection for local or standalone nodes to avoid discovery issues
     mongoOptions.directConnection = true
   }
 
   // Enable Application Performance Monitoring (APM) to track commands
   mongoOptions.monitorCommands = true
+
+  // Stable API support for Atlas
+  if (connConfig.useStableApi || isAtlas) {
+    mongoOptions.serverApi = {
+      version: ServerApiVersion.v1,
+      strict: false,
+      deprecationErrors: true
+    }
+  }
 
   console.log(`[MongoClient] Connecting to: ${uri.replace(/:([^:@]+)@/, ':****@')}`)
   console.log(`[MongoClient] Options:`, JSON.stringify(mongoOptions))
@@ -204,9 +281,19 @@ export function initDbHandlers() {
       activeClients[connConfig.id] = { client, tunnel, config: connConfig }
 
       // Retrieve the default list of databases immediately after connection
+      let dbs = []
       const adminDb = client.db('admin')
-      const result = await adminDb.admin().listDatabases()
-      const dbs = result.databases.map((d) => d.name)
+      try {
+        const result = await adminDb.admin().listDatabases()
+        dbs = result.databases.map((d) => d.name)
+      } catch (err) {
+        console.warn('Could not list databases (likely permission error):', err.message)
+        // Fallback: If global list is denied, show the databases specified in the config
+        const fallbackDbs = new Set()
+        if (connConfig.authDb) fallbackDbs.add(connConfig.authDb)
+        if (connConfig.defaultDb) fallbackDbs.add(connConfig.defaultDb)
+        dbs = Array.from(fallbackDbs)
+      }
 
       // Get the database version to support version-aware queries
       let version = 'unknown'
