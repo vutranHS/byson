@@ -24,10 +24,12 @@ import {
   Activity,
   X,
   Download,
-  Upload
+  Upload,
+  Archive
 } from 'lucide-react'
 import ExportTab from './components/ExportTab'
 import ImportTab from './components/ImportTab'
+import BsonTab from './components/BsonTab'
 
 function App() {
   const [showManager, setShowManager] = useState(false)
@@ -410,6 +412,7 @@ function App() {
                       if (tab.type === 'indexes') return <IndexTab key={tab.id} tab={tab} />
                       if (tab.type === 'export') return <ExportTab key={tab.id} tab={tab} />
                       if (tab.type === 'import') return <ImportTab key={tab.id} tab={tab} />
+                      if (tab.type === 'bson') return <BsonTab key={tab.id} tab={tab} />
                       return <QueryTab key={tab.id} tab={tab} />
                     })}
                 </>
@@ -765,6 +768,21 @@ function App() {
                 className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
               >
                 <Upload size={13} className="text-green-500" /> Import Documents...
+              </button>
+              <button
+                onClick={() => {
+                  openTab({
+                    title: `BSON: ${sidebarMenu.colName}`,
+                    type: 'bson',
+                    connId: sidebarMenu.connId,
+                    dbName: sidebarMenu.dbName,
+                    collectionName: sidebarMenu.colName
+                  })
+                  setSidebarMenu(null)
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <Archive size={13} className="text-orange-400" /> BSON Backup / Restore...
               </button>
               <div className="h-px bg-border my-1" />
               <button

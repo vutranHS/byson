@@ -3,6 +3,7 @@ import vm from 'vm'
 import { MongoClient, ServerApiVersion } from 'mongodb'
 import { executeMongoshQuery } from './queryRunner'
 import { EJSON } from 'bson'
+import { initStorageHandlers, getConnectionById } from './storage'
 import { createSSHTunnel } from './ssh'
 import fs from 'fs'
 import readline from 'readline'
@@ -11,110 +12,118 @@ import streamJson from 'stream-json'
 import StreamArray from 'stream-json/streamers/StreamArray.js'
 import path from 'path'
 import { Transform, Readable } from 'stream'
+import { checkBsonTools, downloadBsonTools } from './bsonTools'
+import { spawn } from 'child_process'
 
 // Store active connection instances (Mapping ConnectionId -> { client, tunnel })
 const activeClients = {}
 
-async function buildMongoClient(connConfig) {
-  let uri = ''
+async function buildMongoUri(connConfig) {
+  let uri = connConfig.connectionString || ''
   let host = 'localhost'
   let port = 27017
 
-  // 1. Determine the base URI and host/port for potential SSH tunneling
-  if (connConfig.connectionString) {
-    uri = connConfig.connectionString
-    // Attempt to extract the first host/port from the URI for SSH tunneling
+  if (uri) {
+    // 1. Connection string provided
     try {
-      let pseudoUri = uri
-      if (uri.startsWith('mongodb+srv://')) {
-        pseudoUri = uri.replace('mongodb+srv://', 'http://')
-      } else if (uri.startsWith('mongodb://')) {
-        pseudoUri = uri.replace('mongodb://', 'http://')
-      } else if (!uri.includes('://')) {
-        pseudoUri = `http://${uri}`
+      const match = uri.match(/\/\/([^/?]+)/)
+      if (match) {
+        let hostsPart = match[1]
+        if (hostsPart.includes('@')) hostsPart = hostsPart.split('@')[1]
+        const firstPair = hostsPart.split(',')[0]
+        const hParts = firstPair.split(':')
+        host = hParts[0]
+        port = parseInt(hParts[1]) || 27017
       }
-      
-      const parsed = new URL(pseudoUri)
-      host = parsed.hostname
-      port = parseInt(parsed.port) || 27017
     } catch (e) {
-      console.warn('Could not parse connection string for SSH host detection:', e.message)
+      console.warn('[MongoClient] URI parsing warning:', e.message)
     }
   } else {
-    if (connConfig.host) {
-      const parts = connConfig.host.split(':')
-      host = parts[0]
-      port = parseInt(parts[1]) || port
-    }
-
+    // 2. Building from discrete fields
+    let rawHost = connConfig.host || 'localhost'
     const isSrv = !!connConfig.useSrv
-    uri = isSrv ? 'mongodb+srv://' : 'mongodb://'
 
+    // SELF-HEALING: Fixed double-port corruption if present in config
+    if (rawHost.includes(':')) {
+       rawHost = rawHost.split(',').map(h => {
+          const parts = h.split(':')
+          if (isSrv) return parts[0] // SRV MUST NOT have ports
+          return parts.length > 2 ? `${parts[0]}:${parts[1]}` : h
+       }).join(',')
+    }
+    
+    const isMultiHost = rawHost.includes(',') || rawHost.includes(':')
+    
+    // Auth part
+    let auth = ''
     if (connConfig.hasAuth && connConfig.authUser) {
-      const user = encodeURIComponent(connConfig.authUser)
-      const pass = encodeURIComponent(connConfig.authPass)
-      uri += `${user}:${pass}@`
+      auth = `${encodeURIComponent(connConfig.authUser)}:${encodeURIComponent(connConfig.authPass)}@`
     }
 
-    uri += host
-    const isMultiHost = host.includes(',')
-    if (!isSrv && !isMultiHost) uri += `:${port}`
+    uri = `${isSrv ? 'mongodb+srv' : 'mongodb'}://${auth}${rawHost}`
+    
+    // Add default port ONLY for simple single host WITHOUT any port and NOT SRV
+    if (!isSrv && !isMultiHost) {
+      uri += `:${connConfig.port || 27017}`
+    }
+    
     uri += '/'
+    if (connConfig.authDb) uri += connConfig.authDb
+    else if (connConfig.defaultDb) uri += connConfig.defaultDb
 
-    if (connConfig.hasAuth && connConfig.authDb) {
-      uri += `${connConfig.authDb}`
-    } else if (connConfig.defaultDb) {
-      uri += `${connConfig.defaultDb}`
-    }
+    const params = []
+    if (connConfig.hasAuth && connConfig.authDb) params.push(`authSource=${connConfig.authDb}`)
+    if (connConfig.replicaSet) params.push(`replicaSet=${connConfig.replicaSet}`)
+    if (connConfig.hasTls || rawHost.includes('.mongodb.net')) params.push('ssl=true')
+    if (connConfig.appName) params.push(`appName=${connConfig.appName}`)
+    
+    if (params.length > 0) uri += '?' + params.join('&')
 
-    if (connConfig.hasAuth && connConfig.authDb) {
-      if (!uri.includes('?')) uri += '?'
-      else uri += '&'
-      uri += `authSource=${connConfig.authDb}`
-    }
+    // Detect first host for SSH
+    const firstPair = rawHost.split(',')[0]
+    const hp = firstPair.split(':')
+    host = hp[0]
+    port = parseInt(hp[1]) || (connConfig.port || 27017)
   }
 
-  // 2. Handle SSH Tunneling
   let tunnel = null
   if (connConfig.hasSsh) {
+    console.log(`[SSH] Starting tunnel to ${host}:${port}`)
     tunnel = await createSSHTunnel(connConfig, host, port)
     const localHost = '127.0.0.1'
     const localPort = tunnel.localPort
     
-    if (connConfig.connectionString) {
-      // Replace the host in the URI with the local tunnel endpoint
-      // This is a bit complex for multi-host URIs, but usually SSH is used for single-node access
-      uri = uri.replace(host, localHost).replace(`:${port}`, `:${localPort}`)
-    } else {
-      // Re-build or patch URI for local tunnel
-      uri = uri.replace(host, localHost)
-      if (uri.includes('mongodb+srv')) {
-         uri = uri.replace('mongodb+srv', 'mongodb') // SRV doesn't work with localhost
-      }
-      uri = uri.replace(`:${port}`, `:${localPort}`)
-      if (!uri.includes(`:${localPort}`)) {
-         uri = uri.replace(`${localHost}/`, `${localHost}:${localPort}/`)
-      }
+    // REPLACE HOST IN URI WITH TUNNEL LOCAL
+    // Be careful with mongodb+srv which doesn't support direct IP
+    if (uri.startsWith('mongodb+srv')) {
+       uri = uri.replace('mongodb+srv', 'mongodb')
+    }
+    
+    // Surgical replacement of host and port
+    uri = uri.replace(host, localHost)
+    if (uri.includes(`:${port}`)) {
+       uri = uri.replace(`:${port}`, `:${localPort}`)
+    } else if (!uri.includes(`:${localPort}`)) {
+       // If port wasn't in URI, find the end of host and insert it
+       uri = uri.replace(`${localHost}/`, `${localHost}:${localPort}/`)
     }
   }
 
-  // 3. Configure Driver Options
-  const mongoOptions = { serverSelectionTimeoutMS: 5000 }
+  return { uri, tunnel, host, port }
+}
 
+async function buildMongoClient(connConfig) {
+  const { uri, tunnel, host, port } = await buildMongoUri(connConfig)
+  
+  const mongoOptions = { serverSelectionTimeoutMS: 5000 }
   const isAtlas = uri.includes('mongodb.net') || uri.includes('mongodb+srv')
 
   if (connConfig.hasTls || uri.includes('ssl=true') || uri.includes('tls=true') || isAtlas) {
-    // For Atlas, simple tls: true is usually enough. 
-    // Redundant options can sometimes cause handshake alerts in strict environments.
     mongoOptions.tls = true
-    
     if (connConfig.tlsAuthMethod === 'CA Certificate' && connConfig.tlsCaPath) {
       mongoOptions.tlsCAFile = connConfig.tlsCaPath
     } else if (connConfig.tlsAuthMethod === 'Self-signed Certificate') {
-      // ONLY set this if explicitly requested and NOT Atlas (Atlas has valid certs)
-      if (!isAtlas) {
-        mongoOptions.tlsAllowInvalidCertificates = true
-      }
+      if (!isAtlas) mongoOptions.tlsAllowInvalidCertificates = true
     }
 
     if (connConfig.tlsClientCertPath) {
@@ -126,29 +135,23 @@ async function buildMongoClient(connConfig) {
   }
 
   if (connConfig.hasAuth && connConfig.authMech && connConfig.authMech !== 'DEFAULT') {
-    // Only pass if it's a known mechanism to avoid driver parse errors
     const validMechs = ['SCRAM-SHA-1', 'SCRAM-SHA-256', 'MONGODB-X509', 'MONGODB-AWS', 'GSSAPI', 'PLAIN']
     if (validMechs.includes(connConfig.authMech)) {
        mongoOptions.authMechanism = connConfig.authMech
     }
   }
 
-  // Determine if we should use directConnection
-  // Atlas and Replica Sets should NOT use directConnection
   const isReplicaSet = connConfig.type === 'Replica Set' || (connConfig.replicaSet && connConfig.replicaSet.length > 0) || uri.includes('replicaSet=')
 
   if (isReplicaSet || isAtlas) {
     if (connConfig.replicaSet) mongoOptions.replicaSet = connConfig.replicaSet
     mongoOptions.directConnection = false
   } else {
-    // Only use directConnection for local or standalone nodes to avoid discovery issues
     mongoOptions.directConnection = true
   }
 
-  // Enable Application Performance Monitoring (APM) to track commands
   mongoOptions.monitorCommands = true
 
-  // Stable API support for Atlas
   if (connConfig.useStableApi || isAtlas) {
     mongoOptions.serverApi = {
       version: ServerApiVersion.v1,
@@ -161,6 +164,7 @@ async function buildMongoClient(connConfig) {
   console.log(`[MongoClient] Options:`, JSON.stringify(mongoOptions))
 
   const client = new MongoClient(uri, mongoOptions)
+  await client.connect()
   return { client, tunnel }
 }
 
@@ -1039,6 +1043,121 @@ export function initDbHandlers() {
       return { ok: false, error: err.message }
     } finally {
       // Don't close the active connection instance here because it's shared
+    }
+  })
+
+  // BSON Tools Management
+  ipcMain.handle('db:checkBsonTools', async () => {
+    return checkBsonTools()
+  })
+
+  ipcMain.handle('db:downloadBsonTools', async (event) => {
+    try {
+      const { BrowserWindow } = require('electron')
+      const win = BrowserWindow.fromWebContents(event.sender)
+      return await downloadBsonTools(win)
+    } catch (err) {
+      console.error('[BSON Download Error]', err)
+      return { ok: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('db:runBsonCommand', async (event, { type, connId, dbName, collectionName, targetPath, options = {} }) => {
+    try {
+      const { exists, dumpPath, restorePath } = checkBsonTools()
+      if (!exists) throw new Error('BSON tools not found. Please download them first.')
+
+      const binPath = type === 'backup' ? dumpPath : restorePath
+      const { BrowserWindow } = require('electron')
+      const win = BrowserWindow.fromWebContents(event.sender)
+
+      // 1. Get connection config
+      const connConfig = getConnectionById(connId)
+      if (!connConfig) throw new Error('Connection configuration not found')
+
+      // 2. Build connection URI (handle SSH tunnel if active)
+      let { uri } = await buildMongoUri(connConfig)
+      const activeConn = activeClients[connId]
+      if (activeConn && activeConn.tunnel) {
+        // If tunnel is active, use localhost and the local port
+        const localPort = activeConn.tunnel.localPort
+        const urlObj = new URL(uri.startsWith('mongodb+srv') ? uri.replace('mongodb+srv', 'mongodb') : uri)
+        urlObj.host = 'localhost'
+        urlObj.port = localPort
+        uri = urlObj.toString()
+      }
+
+      // Strip Database from URI to avoid conflict with --db flag in BSON tools
+      if (uri.includes('://')) {
+        const uriParts = uri.split('?')
+        let base = uriParts[0]
+        const query = uriParts[1] ? `?${uriParts[1]}` : ''
+        const protocolEnd = base.indexOf('://') + 3
+        const firstSlash = base.indexOf('/', protocolEnd)
+        if (firstSlash !== -1) {
+          base = base.substring(0, firstSlash + 1)
+        } else if (!base.endsWith('/')) {
+          base += '/'
+        }
+        uri = base + query
+      }
+
+      // 3. Prepare arguments
+      const isAtlas = uri.toLowerCase().includes('mongodb.net') || uri.toLowerCase().includes('mongodb+srv')
+      const args = [`--uri=${uri}`]
+      
+      if (type === 'backup') {
+        // Backup: Use traditional flags for stability as requested
+        args.push(`--db=${dbName}`, `--collection=${collectionName}`)
+        args.push(`--archive=${targetPath}`)
+        if (options.gzip) args.push('--gzip')
+      } else {
+        // Restore: Use nsInclude for Atlas, db/collection for others
+        if (isAtlas) {
+          args.push(`--nsInclude=${dbName}.${collectionName}`)
+          args.push('--numInsertionWorkersPerCollection=1') // Shared tier stability
+        } else {
+          args.push(`--db=${dbName}`, `--collection=${collectionName}`)
+        }
+        args.push(`--archive=${targetPath}`)
+        if (options.gzip) args.push('--gzip')
+        if (options.drop) args.push('--drop')
+      }
+
+      console.log(`[BSON] Running command: ${binPath} ${args.join(' ')}`)
+
+      return new Promise((resolve) => {
+        const proc = spawn(binPath, args)
+        let output = ''
+
+        proc.stdout.on('data', (data) => {
+          const str = data.toString()
+          output += str
+          if (win) win.webContents.send('db:bsonLog', { type: 'stdout', message: str })
+        })
+
+        proc.stderr.on('data', (data) => {
+          const str = data.toString()
+          output += str
+          if (win) win.webContents.send('db:bsonLog', { type: 'stderr', message: str })
+        })
+
+        proc.on('close', (code) => {
+          if (code === 0) {
+            resolve({ ok: true })
+          } else {
+            resolve({ ok: false, error: `Command failed with code ${code}`, output })
+          }
+        })
+
+        proc.on('error', (err) => {
+          resolve({ ok: false, error: err.message })
+        })
+      })
+
+    } catch (err) {
+      console.error('[BSON Command Error]', err)
+      return { ok: false, error: err.message }
     }
   })
 

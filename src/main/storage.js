@@ -36,4 +36,17 @@ function initStorageHandlers() {
   })
 }
 
-export { initStorageHandlers }
+function getConnectionById(id) {
+  try {
+    const filePath = getStoragePath()
+    if (!existsSync(filePath)) return null
+    const data = readFileSync(filePath, 'utf-8')
+    const connections = JSON.parse(data)
+    return connections.find(c => c.id === id) || null
+  } catch (err) {
+    console.error('Error reading connection by ID', err)
+    return null
+  }
+}
+
+export { initStorageHandlers, getConnectionById }
