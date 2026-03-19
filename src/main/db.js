@@ -18,6 +18,8 @@ import { spawn } from 'child_process'
 
 // Store active connection instances (Mapping ConnectionId -> { client, tunnel })
 const activeClients = {}
+// Track connections currently in a background reconnection loop
+const reconnectingIds = new Set()
 // Store active export/import operations for cancellation
 const activeOperations = new Map()
 
@@ -342,12 +344,80 @@ export function initDbHandlers() {
         console.warn('Could not fetch MongoDB version:', err.message)
       }
 
+      // Attach disconnect listeners for background auto-reconnect
+      attachDisconnectListeners(connConfig.id)
+
       return { ok: true, databases: dbs, version }
     } catch (err) {
       console.error('Connect Error:', err)
       return { ok: false, error: err.message }
     }
   })
+
+  const attachDisconnectListeners = (connId) => {
+    const session = activeClients[connId]
+    if (!session) return
+
+    const onDrop = (src) => {
+      console.warn(`[Auto-Reconnect] Drop detected via ${src} for ${connId}`)
+      triggerReconnect(connId)
+    }
+
+    if (session.tunnel && session.tunnel.sshClient) {
+      session.tunnel.sshClient.on('error', (err) => onDrop(`SSH (${err.message})`))
+      session.tunnel.sshClient.on('close', () => onDrop('SSH Close'))
+    }
+  }
+
+  const triggerReconnect = async (connId) => {
+    if (reconnectingIds.has(connId)) return
+    const session = activeClients[connId]
+    if (!session) return
+
+    reconnectingIds.add(connId)
+    const RETRY_INTERVALS = [15000, 30000, 60000, 120000, 300000]
+
+    console.warn(`[Auto-Reconnect] Background recovery started for ${connId}...`)
+
+    // 1. Tear down dead instances
+    if (session.client) await session.client.close(true).catch(() => {})
+    if (session.tunnel) session.tunnel.close()
+
+    for (let i = 0; i < RETRY_INTERVALS.length; i++) {
+      const delay = RETRY_INTERVALS[i]
+      console.log(`[Auto-Reconnect] (BG) Attempt ${i + 1}/${RETRY_INTERVALS.length} in ${delay / 1000}s...`)
+      
+      await new Promise((resolve) => setTimeout(resolve, delay))
+
+      if (!activeClients[connId]) {
+        reconnectingIds.delete(connId)
+        return
+      }
+
+      try {
+        const rebuilt = await buildMongoClient(session.config)
+        await rebuilt.client.connect()
+        attachAPMListeners(rebuilt.client, connId)
+
+        activeClients[connId] = {
+          ...session,
+          client: rebuilt.client,
+          tunnel: rebuilt.tunnel
+        }
+
+        attachDisconnectListeners(connId)
+        console.log(`[Auto-Reconnect] (BG) Successfully restored connection for ${connId}.`)
+        reconnectingIds.delete(connId)
+        return
+      } catch (err) {
+        console.error(`[Auto-Reconnect] (BG) Attempt ${i + 1} failed: ${err.message}`)
+      }
+    }
+
+    console.error(`[Auto-Reconnect] (BG) All attempts failed. Connection ${connId} is now dead.`)
+    delete activeClients[connId]
+    reconnectingIds.delete(connId)
+  }
 
   const getSession = (connId) => {
     const session = activeClients[connId]
@@ -362,6 +432,8 @@ export function initDbHandlers() {
    */
   const withRetry = async (connId, action) => {
     const session = getSession(connId)
+    const RETRY_INTERVALS = [15000, 30000, 60000, 120000, 300000] // 15s, 30s, 1m, 2m, 5m
+
     try {
       return await action(session.client)
     } catch (err) {
@@ -371,41 +443,72 @@ export function initDbHandlers() {
         err.message.includes('not connected') ||
         err.message.includes('Topology is closed') ||
         err.message.includes('broken pipe') ||
-        err.message.includes('connection closed')
+        err.message.includes('connection closed') ||
+        err.message.includes('socket hang up') ||
+        err.message.includes('ECONNRESET')
 
       if (isConnectionError) {
-        // IMPORTANT: If the user manually disconnected, the connId will be missing from activeClients.
-        // In that case, we MUST NOT attempt to reconnect.
         if (!activeClients[connId]) {
           throw err
         }
 
-        console.warn(`[Auto-Reconnect] Connection lost for ${connId}. Attempting to restore...`)
-        try {
-          // 1. Tear down dead instances
-          if (session.client) await session.client.close(true).catch(() => {})
-          if (session.tunnel) session.tunnel.close()
+        // If background reconnect is already running, wait for it instead of starting a new one
+        if (reconnectingIds.has(connId)) {
+          console.log(`[Auto-Reconnect] Query waiting for background recovery...`)
+          // Poll every 2s to see if it's done or failed
+          for (let p = 0; p < 30; p++) {
+            await new Promise((r) => setTimeout(r, 2000))
+            if (!reconnectingIds.has(connId)) {
+               if (activeClients[connId]?.client) return await action(activeClients[connId].client)
+               break
+            }
+          }
+        }
 
-          // 2. Re-build connection using the cached config
-          const rebuilt = await buildMongoClient(session.config)
-          await rebuilt.client.connect()
-          attachAPMListeners(rebuilt.client, connId)
-
-          // 3. Update the global cache
-          activeClients[connId] = {
-            ...session,
-            client: rebuilt.client,
-            tunnel: rebuilt.tunnel
+        console.warn(`[Auto-Reconnect] Connection lost for ${connId} during query. Starting recovery...`)
+        
+        // 1. Tear down dead instances immediately
+        if (session.client) await session.client.close(true).catch(() => {})
+        if (session.tunnel) session.tunnel.close()
+        
+        // Notify UI that we are reconnecting (by removing from activeClients temporarily or setting a flag)
+        // For simplicity, we keep the entry but mark it as reconnecting if we had a state for it.
+        // The current UI relies on isActive = !!activeConnections[conn.id].
+        
+        let lastError = err
+        for (let i = 0; i < RETRY_INTERVALS.length; i++) {
+          const delay = RETRY_INTERVALS[i]
+          console.log(`[Auto-Reconnect] Attempt ${i + 1}/${RETRY_INTERVALS.length} in ${delay / 1000}s...`)
+          
+          await new Promise(resolve => setTimeout(resolve, delay))
+          
+          if (!activeClients[connId]) {
+            console.log(`[Auto-Reconnect] Reconnection aborted for ${connId} (disconnected manually).`)
+            throw lastError
           }
 
-          console.log(`[Auto-Reconnect] Successfully restored connection for ${connId}. Retrying...`)
+          try {
+            console.log(`[Auto-Reconnect] Rebuilding connection ${connId}...`)
+            const rebuilt = await buildMongoClient(session.config)
+            await rebuilt.client.connect()
+            attachAPMListeners(rebuilt.client, connId)
 
-          // 4. Retry the original action with the NEW client
-          return await action(rebuilt.client)
-        } catch (reconnectErr) {
-          console.error('[Auto-Reconnect] Failed to restore connection:', reconnectErr)
-          throw new Error(`Connection lost and auto-reconnect failed: ${reconnectErr.message}`)
+            activeClients[connId] = {
+              ...session,
+              client: rebuilt.client,
+              tunnel: rebuilt.tunnel
+            }
+
+            console.log(`[Auto-Reconnect] Successfully restored connection for ${connId} after ${i + 1} attempts.`)
+            return await action(rebuilt.client)
+          } catch (reconnectErr) {
+            lastError = reconnectErr
+            console.error(`[Auto-Reconnect] Attempt ${i + 1} failed:`, reconnectErr.message)
+          }
         }
+
+        console.error(`[Auto-Reconnect] All ${RETRY_INTERVALS.length} attempts failed for ${connId}.`)
+        throw new Error(`Connection lost and all retry attempts failed: ${lastError.message}`)
       }
       throw err
     }

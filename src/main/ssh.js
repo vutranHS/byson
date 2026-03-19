@@ -27,10 +27,22 @@ export async function createSSHTunnel(sshConfig, targetHost, targetPort) {
           targetPort,
           (err, stream) => {
             if (err) {
-              console.error('SSH Forward Error', err)
+              console.error('[SSH] Forward Error:', err.message)
               socket.end()
               return
             }
+
+            // [FIX] Handle errors on both sides of the pipe to prevent unhandled ECONNRESET popups on Windows
+            socket.on('error', (err) => {
+              console.warn(`[SSH] Local socket error (${err.code}): ${err.message}`)
+              stream.end()
+            })
+
+            stream.on('error', (err) => {
+              console.warn(`[SSH] SSH stream error (${err.code}): ${err.message}`)
+              socket.end()
+            })
+
             socket.pipe(stream).pipe(socket)
           }
         )
@@ -40,6 +52,7 @@ export async function createSSHTunnel(sshConfig, targetHost, targetPort) {
         const localPort = server.address().port
         resolve({
           localPort,
+          sshClient,
           close: () => {
             server.close()
             sshClient.end()
@@ -61,7 +74,10 @@ export async function createSSHTunnel(sshConfig, targetHost, targetPort) {
       host: sshConfig.sshHost,
       port: parseInt(sshConfig.sshPort) || 22,
       username: sshConfig.sshUser || 'root',
-      readyTimeout: 10000
+      readyTimeout: 15000,
+      // [FIX] Add keep-alive to prevent SSH connection drops during idle periods
+      keepaliveInterval: 10000,
+      keepaliveCountMax: 3
     }
 
     if (sshConfig.sshAuthMethod === 'Password') {
