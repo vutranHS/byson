@@ -680,7 +680,7 @@ export function initDbHandlers() {
   // Export / Import (Stream Engine)
   // ==========================================
 
-  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, csvOptions = null, query = {}, queryString = null, projection = {}, options = {} }) => {
+  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, csvOptions = null, transformCode = null, query = {}, queryString = null, projection = {}, options = {} }) => {
     const { BrowserWindow } = require('electron')
     const win = BrowserWindow.fromWebContents(event.sender)
     
@@ -692,6 +692,16 @@ export function initDbHandlers() {
     }
     const delimiter = getDelimiter(csvOptions?.delimiter)
     
+    let transformScript = null
+    try {
+      if (transformCode) {
+        transformScript = new vm.Script(`(${transformCode})(doc)`)
+      }
+    } catch (e) {
+      console.error('[Export] ETL Compilation Error:', e)
+      return { ok: false, error: `ETL Syntax Error: ${e.message}` }
+    }
+
     let exportClient = null
     let exportTunnel = null
     
@@ -771,11 +781,28 @@ export function initDbHandlers() {
       const transformStream = new Transform({
         writableObjectMode: true,
         transform(doc, encoding, callback) {
+          // Apply ETL if present
+          let currentDoc = doc
+          if (transformScript) {
+            try {
+              const sandbox = { doc }
+              vm.createContext(sandbox)
+              const result = transformScript.runInContext(sandbox)
+              if (result === null || result === undefined) {
+                return callback() // Skip this document
+              }
+              currentDoc = result
+            } catch (e) {
+              console.error('[Export] ETL Execution Error:', e)
+              return callback(e)
+            }
+          }
+
           processedCount++
           
           let chunk = ''
           try {
-            const serialized = EJSON.serialize(doc)
+            const serialized = EJSON.serialize(currentDoc)
             if (format === 'json') {
               chunk = (processedCount === 1 ? '[\n  ' : ',\n  ') + JSON.stringify(serialized)
             } else if (format === 'csv') {
@@ -1015,6 +1042,17 @@ export function initDbHandlers() {
                          options.csvOptions?.delimiter === 'tab' ? '\t' : 
                          options.csvOptions?.delimiter === 'pipe' ? '|' : ','
 
+        const transformCode = options.transformCode
+        let transformScript = null
+        if (transformCode) {
+          try {
+            transformScript = new vm.Script(`(${transformCode})(doc)`)
+          } catch (e) {
+            console.error('[Import] ETL Compilation Error:', e)
+            throw new Error(`ETL Syntax Error: ${e.message}`)
+          }
+        }
+
         try {
           if (format === 'csv') {
             iterator = inputStream.pipe(csvParser({ separator: delimiter }))
@@ -1053,6 +1091,26 @@ export function initDbHandlers() {
               } else {
                 // csv
                 doc = EJSON.deserialize(chunk)
+              }
+
+              if (!doc || Object.keys(doc).length === 0) continue
+
+              // Apply ETL if present
+              if (transformScript) {
+                try {
+                  const sandbox = { doc }
+                  vm.createContext(sandbox)
+                  const result = transformScript.runInContext(sandbox)
+                  if (result === null || result === undefined) {
+                    continue // Skip this document
+                  }
+                  doc = result
+                } catch (e) {
+                  console.error('[Import] ETL Execution Error:', e)
+                  failedCount++
+                  if (options.importMode === 'stop') throw e
+                  continue
+                }
               }
 
               if (!doc || Object.keys(doc).length === 0) continue
@@ -1231,6 +1289,17 @@ export function initDbHandlers() {
         return ','
       }
       const delimiter = getDelimiter(csvOptions?.delimiter)
+
+      let transformScript = null
+      if (transformCode) {
+        try {
+          transformScript = new vm.Script(`(${transformCode})(doc)`)
+        } catch (e) {
+          console.error('[Preview] ETL Compilation Error:', e)
+          return { ok: false, error: `ETL Syntax Error: ${e.message}` }
+        }
+      }
+
       if (sourceType === 'file' && !filePath) {
         return { ok: true, data: EJSON.serialize([]) }
       }
@@ -1296,6 +1365,25 @@ export function initDbHandlers() {
 
             if (!doc || Object.keys(doc).length === 0) continue
 
+            // Apply ETL if present
+            if (transformScript) {
+              try {
+                const sandbox = { doc }
+                vm.createContext(sandbox)
+                const result = transformScript.runInContext(sandbox)
+                if (result === null || result === undefined) {
+                  continue // Skip this document
+                }
+                doc = result
+              } catch (e) {
+                console.warn('[Preview] ETL Execution Error:', e.message)
+                // In preview, we can ignore execution errors and show original doc or error
+                // but for now let's just skip the transformation if it fails
+              }
+            }
+
+            if (!doc || Object.keys(doc).length === 0) continue
+
             previewDocs.push(doc)
             if (previewDocs.length >= 5) {
               break // We only need 5 docs for preview
@@ -1319,6 +1407,80 @@ export function initDbHandlers() {
     } catch (err) {
       console.error('[Preview Error]', err)
       return { ok: false, error: err.message }
+    }
+  })
+
+  // Export Preview Logic
+  ipcMain.handle('db:previewExport', async (event, { connId, dbName, collectionName, query, queryString, transformCode = null }) => {
+    let previewClient = null
+    try {
+      const session = activeClients[connId]
+      if (!session) throw new Error('Not connected')
+
+      const built = await buildMongoClient(session.config)
+      previewClient = built.client
+      await previewClient.connect()
+      const db = previewClient.db(dbName)
+
+      let cursor
+      if (queryString) {
+        const vm = require('vm')
+        const sandbox = {
+          db: {
+            getCollection: (name) => db.collection(name),
+            collection: (name) => db.collection(name)
+          }
+        }
+        vm.createContext(sandbox)
+        const script = new vm.Script(queryString)
+        cursor = script.runInContext(sandbox)
+      } else {
+        cursor = db.collection(collectionName).find(query || {})
+      }
+
+      if (!cursor || typeof cursor.toArray !== 'function') {
+        throw new Error('Invalid cursor returned from query')
+      }
+
+      const docs = await cursor.limit(10).toArray()
+      
+      let transformScript = null
+      if (transformCode) {
+        try {
+          const vm = require('vm')
+          transformScript = new vm.Script(`(${transformCode})(doc)`)
+        } catch (e) {
+          return { ok: false, error: `ETL Syntax Error: ${e.message}` }
+        }
+      }
+
+      const transformed = []
+      const vm = require('vm')
+      const { EJSON } = require('bson')
+      for (let doc of docs) {
+        if (transformScript) {
+          try {
+            const sandbox = { doc }
+            vm.createContext(sandbox)
+            const result = transformScript.runInContext(sandbox)
+            if (result === null || result === undefined) continue
+            transformed.push(result)
+          } catch (e) {
+            console.warn('[Export Preview] ETL Error:', e.message)
+            transformed.push(doc)
+          }
+        } else {
+          transformed.push(doc)
+        }
+        if (transformed.length >= 5) break
+      }
+
+      return { ok: true, data: EJSON.serialize(transformed) }
+    } catch (err) {
+      console.error('[Export Preview Error]', err)
+      return { ok: false, error: err.message }
+    } finally {
+      if (previewClient) previewClient.close()
     }
   })
 }

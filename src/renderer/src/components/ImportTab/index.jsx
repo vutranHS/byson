@@ -12,7 +12,8 @@ import {
   ChevronRight,
   Monitor,
   Clipboard,
-  FileText
+  FileText,
+  Code
 } from 'lucide-react'
 
 const ImportTab = ({ tab }) => {
@@ -26,8 +27,11 @@ const ImportTab = ({ tab }) => {
     batchSize: 1000,
     csvOptions: {
       delimiter: 'comma'
-    }
+    },
+    useTransform: false,
+    transformCode: `(doc) => {\n  // doc.newField = "hello";\n  return doc;\n}`
   })
+  const [etlError, setEtlError] = useState(null)
   
   const [isImporting, setIsImporting] = useState(false)
   const [progress, setProgress] = useState(null) // { processed, success, failed, percentage }
@@ -133,9 +137,11 @@ const ImportTab = ({ tab }) => {
         filePath: sourceType === 'file' ? filePath : null,
         clipboardData: sourceType === 'clipboard' ? clipboardData : null,
         format,
-        csvOptions: format === 'csv' ? options.csvOptions : null
+        csvOptions: format === 'csv' ? options.csvOptions : null,
+        transformCode: options.useTransform ? options.transformCode : null
       })
       if (res.ok) {
+        setEtlError(null)
         const parsed = JSON.parse(res.data)
         setPreviewData(parsed)
         
@@ -145,11 +151,22 @@ const ImportTab = ({ tab }) => {
           Object.keys(doc).forEach(k => fields.add(k))
         })
         const uniqueFields = Array.from(fields)
-        setAllFields(uniqueFields)
-        // Set selected fields to all fields initially if not already set, or intersection
-        setSelectedFields(uniqueFields)
+        
+        setAllFields(prevAll => {
+          setSelectedFields(prevSelected => {
+            if (prevAll.length === 0) return uniqueFields
+            const stillSelected = prevSelected.filter(f => uniqueFields.includes(f))
+            const brandNew = uniqueFields.filter(f => !prevAll.includes(f))
+            return [...new Set([...stillSelected, ...brandNew])]
+          })
+          return uniqueFields
+        })
       } else {
-        console.error('Preview error:', res.error)
+        if (res.error?.includes('ETL')) {
+          setEtlError(res.error)
+        } else {
+          console.error('Preview error:', res.error)
+        }
         setPreviewData([])
         setAllFields([])
         setSelectedFields([])
@@ -167,7 +184,7 @@ const ImportTab = ({ tab }) => {
   // Auto fetch preview whenever source changes
   useEffect(() => {
     fetchPreview()
-  }, [sourceType, filePath, clipboardData, format, options.csvOptions])
+  }, [sourceType, filePath, clipboardData, format, options.csvOptions, options.useTransform, options.transformCode])
 
   return (
     <div className="flex-1 flex flex-col bg-bg-primary overflow-auto p-6 scrollbar-premium">
@@ -286,6 +303,44 @@ const ImportTab = ({ tab }) => {
               </div>
             </section>
           )}
+
+          {/* 2.6 Transformation (ETL) */}
+          <section className="bg-bg-secondary/50 border border-border rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold text-text-secondary uppercase tracking-widest flex items-center gap-2">
+                <Code size={14} /> Transformation (ETL)
+              </h3>
+              <div 
+                onClick={() => setOptions({ ...options, useTransform: !options.useTransform })}
+                className={`w-8 h-4 rounded-full p-0.5 cursor-pointer transition-colors ${options.useTransform ? 'bg-accent' : 'bg-bg-tertiary'}`}
+              >
+                <div className={`w-3 h-3 bg-white rounded-full transition-transform ${options.useTransform ? 'translate-x-4' : 'translate-x-0'}`} />
+              </div>
+            </div>
+            {options.useTransform && (
+              <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
+                <p className="text-[10px] text-text-secondary leading-relaxed">
+                  Write JavaScript to transform each document. Returning <code>null</code> will skip the document.
+                </p>
+                <div className="relative group">
+                  <textarea
+                    value={options.transformCode}
+                    onChange={(e) => setOptions({ ...options, transformCode: e.target.value })}
+                    spellCheck={false}
+                    className={`w-full h-32 bg-bg-tertiary/50 border rounded-lg p-3 text-[11px] font-mono text-text-primary focus:outline-none transition-colors scrollbar-premium ${etlError ? 'border-red-500/50 focus:border-red-500' : 'border-border focus:border-accent/50'}`}
+                  />
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-[9px] bg-bg-primary/80 px-2 py-1 rounded text-text-secondary border border-border">JS</span>
+                  </div>
+                </div>
+                {etlError && (
+                  <p className="text-[10px] text-red-400 font-mono mt-2 bg-red-500/5 p-2 rounded border border-red-500/10">
+                    {etlError}
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
 
           {/* 3. Field Mapping */}
           <section className="bg-bg-secondary/50 border border-border rounded-xl p-5 h-64 flex flex-col">

@@ -10,7 +10,8 @@ import {
   RefreshCw,
   Table as TableIcon,
   ChevronRight,
-  Monitor
+  Monitor,
+  Code
 } from 'lucide-react'
 import { EJSON } from 'bson'
 
@@ -24,6 +25,9 @@ const ExportTab = ({ tab }) => {
   const [selectedFields, setSelectedFields] = useState([])
   const [limit, setLimit] = useState(100)
   const [csvDelimiter, setCsvDelimiter] = useState('comma') // comma, semicolon, tab, pipe
+  const [useTransform, setUseTransform] = useState(false)
+  const [transformCode, setTransformCode] = useState(`(doc) => {\n  // doc.newField = "hello";\n  return doc;\n}`)
+  const [etlError, setEtlError] = useState(null)
   const [status, setStatus] = useState('idle') // idle, exporting, done, error
   const [error, setError] = useState(null)
   
@@ -38,23 +42,34 @@ const ExportTab = ({ tab }) => {
   // Load preview and available fields
   useEffect(() => {
     fetchPreview()
-  }, [connId, dbName, collectionName])
+  }, [connId, dbName, collectionName, queryFilter, useTransform, transformCode])
 
   const fetchPreview = async () => {
     try {
-      let finalQuery = queryFilter.trim()
-      // If the query doesn't look like a full mongosh command, wrap it
-      if (!finalQuery.toLowerCase().startsWith('db.')) {
-        finalQuery = `db.getCollection('${collectionName}').find(${finalQuery || '{}'})`
+      const trimmedQuery = queryFilter.trim()
+      let isRawQueryString = trimmedQuery.toLowerCase().startsWith('db.')
+      
+      let queryObj = {}
+      if (!isRawQueryString) {
+        try {
+          queryObj = trimmedQuery ? (trimmedQuery.startsWith('{') ? JSON.parse(trimmedQuery) : eval(`(${trimmedQuery})`)) : {}
+        } catch (e) {
+          // If query is invalid, we might still want to fetch preview with empty query
+          // or just return and wait for user to fix it.
+        }
       }
 
-      const res = await window.electron.ipcRenderer.invoke('db:runQuery', {
+      const res = await window.electron.ipcRenderer.invoke('db:previewExport', {
         connId,
         dbName,
-        query: finalQuery,
-        options: { limit: 5 }
+        collectionName,
+        query: isRawQueryString ? null : queryObj,
+        queryString: isRawQueryString ? trimmedQuery : null,
+        transformCode: useTransform ? transformCode : null
       })
+      
       if (res.ok) {
+        setEtlError(null)
         const data = EJSON.deserialize(res.data)
         setPreviewData(data)
         
@@ -64,8 +79,27 @@ const ExportTab = ({ tab }) => {
           Object.keys(doc).forEach(f => fields.add(f))
         })
         const fieldList = Array.from(fields)
-        setAllFields(fieldList)
-        setSelectedFields(fieldList)
+        
+        setAllFields(prevAll => {
+          setSelectedFields(prevSelected => {
+            // If it's the first load (prevAll is empty), select all
+            if (prevAll.length === 0) return fieldList
+            
+            // Keep fields that were already selected and still exist
+            const stillSelected = prevSelected.filter(f => fieldList.includes(f))
+            // Find fields that are brand new (not in prevAll) and select them by default
+            const brandNew = fieldList.filter(f => !prevAll.includes(f))
+            
+            return [...new Set([...stillSelected, ...brandNew])]
+          })
+          return fieldList
+        })
+      } else {
+        if (res.error?.includes('ETL')) {
+          setEtlError(res.error)
+        } else {
+          console.error('Failed to fetch preview:', res.error)
+        }
       }
     } catch (err) {
       console.error('Failed to fetch preview:', err)
@@ -136,6 +170,7 @@ const ExportTab = ({ tab }) => {
         filePath,
         format,
         csvOptions: format === 'csv' ? { delimiter: csvDelimiter } : null,
+        transformCode: useTransform ? transformCode : null,
         query: isRawQueryString ? null : parsedQuery,
         queryString: isRawQueryString ? trimmedQuery : null,
         projection
@@ -243,6 +278,44 @@ const ExportTab = ({ tab }) => {
               </div>
             </section>
           )}
+
+          {/* 1.6 Transformation (ETL) */}
+          <section className="bg-bg-secondary/50 border border-border rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold text-text-secondary uppercase tracking-widest flex items-center gap-2">
+                <Code size={14} /> Transformation (ETL)
+              </h3>
+              <div 
+                onClick={() => setUseTransform(!useTransform)}
+                className={`w-8 h-4 rounded-full p-0.5 cursor-pointer transition-colors ${useTransform ? 'bg-accent' : 'bg-bg-tertiary'}`}
+              >
+                <div className={`w-3 h-3 bg-white rounded-full transition-transform ${useTransform ? 'translate-x-4' : 'translate-x-0'}`} />
+              </div>
+            </div>
+            {useTransform && (
+              <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
+                <p className="text-[10px] text-text-secondary leading-relaxed">
+                  Write JavaScript to transform each document. Returning <code>null</code> will skip the document.
+                </p>
+                <div className="relative group">
+                  <textarea
+                    value={transformCode}
+                    onChange={(e) => setTransformCode(e.target.value)}
+                    spellCheck={false}
+                    className={`w-full h-32 bg-bg-tertiary/50 border rounded-lg p-3 text-[11px] font-mono text-text-primary focus:outline-none transition-colors scrollbar-premium ${etlError ? 'border-red-500/50 focus:border-red-500' : 'border-border focus:border-accent/50'}`}
+                  />
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-[9px] bg-bg-primary/80 px-2 py-1 rounded text-text-secondary border border-border">JS</span>
+                  </div>
+                </div>
+                {etlError && (
+                  <p className="text-[10px] text-red-400 font-mono mt-2 bg-red-500/5 p-2 rounded border border-red-500/10">
+                    {etlError}
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
 
           {/* 2. Filter Query */}
           <section className="bg-bg-secondary/50 border border-border rounded-xl p-5">
