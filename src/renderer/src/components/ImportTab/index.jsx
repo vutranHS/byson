@@ -52,19 +52,23 @@ const ImportTab = ({ tab }) => {
       const path = await window.electron.ipcRenderer.invoke('shell:openFile', {
         title: 'Select Import File',
         filters: [
-          { name: 'Supported Files', extensions: ['json', 'jsonl', 'jsonlines', 'csv', 'tsv'] },
-          { name: 'JSON Array', extensions: ['json'] },
-          { name: 'JSON Lines', extensions: ['jsonl', 'jsonlines'] },
-          { name: 'CSV Files', extensions: ['csv', 'tsv'] },
+          { name: 'Supported Files', extensions: ['json', 'jsonl', 'jsonlines', 'csv', 'tsv', 'gz'] },
+          { name: 'JSON Array', extensions: ['json', 'json.gz'] },
+          { name: 'JSON Lines', extensions: ['jsonl', 'jsonlines', 'jsonl.gz', 'jsonlines.gz'] },
+          { name: 'CSV Files', extensions: ['csv', 'tsv', 'csv.gz', 'tsv.gz'] },
+          { name: 'Gzip Compressed', extensions: ['gz'] },
           { name: 'All Files', extensions: ['*'] }
         ]
       })
       if (path) {
         setFilePath(path)
-        // Auto-detect format based on extension
+        // Auto-detect format based on extension (ignoring .gz)
         const lowerPath = path.toLowerCase()
-        if (lowerPath.endsWith('.csv') || lowerPath.endsWith('.tsv')) setFormat('csv')
-        else if (lowerPath.endsWith('.jsonl') || lowerPath.endsWith('.jsonlines')) setFormat('jsonl')
+        const isGzip = lowerPath.endsWith('.gz')
+        const baseName = isGzip ? lowerPath.slice(0, -3) : lowerPath
+        
+        if (baseName.endsWith('.csv') || baseName.endsWith('.tsv')) setFormat('csv')
+        else if (baseName.endsWith('.jsonl') || baseName.endsWith('.jsonlines')) setFormat('jsonl')
         else setFormat('json')
       }
     } catch (err) {

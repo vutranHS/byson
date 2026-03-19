@@ -6,6 +6,7 @@ import { EJSON } from 'bson'
 import { initStorageHandlers, getConnectionById } from './storage'
 import { createSSHTunnel } from './ssh'
 import fs from 'fs'
+import zlib from 'zlib'
 import readline from 'readline'
 import csvParser from 'csv-parser'
 import streamJson from 'stream-json'
@@ -680,7 +681,7 @@ export function initDbHandlers() {
   // Export / Import (Stream Engine)
   // ==========================================
 
-  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, csvOptions = null, transformCode = null, query = {}, queryString = null, projection = {}, options = {} }) => {
+  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, csvOptions = null, transformCode = null, useCompression = false, query = {}, queryString = null, projection = {}, options = {} }) => {
     const { BrowserWindow } = require('electron')
     const win = BrowserWindow.fromWebContents(event.sender)
     
@@ -886,14 +887,25 @@ export function initDbHandlers() {
           }
         })
 
-        // Pipe: MongoDB -> Transform -> File
+        // Pipe: MongoDB -> Transform -> (Gzip) -> File
         // Make sure we catch errors at EVERY stage
-        mongoStream
+        let pipeChain = mongoStream
           .pipe(transformStream)
           .on('error', (e) => {
             console.error('[Export] Pipe Error at Transform:', e)
             reject(e)
           })
+
+        if (useCompression) {
+          const gzip = zlib.createGzip()
+          gzip.on('error', (err) => {
+            console.error('[Export] Gzip Error:', err)
+            reject(err)
+          })
+          pipeChain = pipeChain.pipe(gzip)
+        }
+
+        pipeChain
           .pipe(writeStream)
           .on('error', (e) => {
             console.error('[Export] Pipe Error at WriteStream:', e)
@@ -974,6 +986,9 @@ export function initDbHandlers() {
         const stats = fs.statSync(filePath)
         totalBytes = stats.size || 1
         inputStream = fs.createReadStream(filePath)
+        if (filePath.toLowerCase().endsWith('.gz')) {
+          inputStream = inputStream.pipe(zlib.createGunzip())
+        }
       } else {
         const buf = Buffer.from(clipboardData || '', 'utf8')
         totalBytes = buf.length || 1
@@ -1280,7 +1295,7 @@ export function initDbHandlers() {
   })
 
   // Preview Import Logic
-  ipcMain.handle('db:previewImport', async (event, { sourceType, filePath, clipboardData, format, csvOptions = null }) => {
+  ipcMain.handle('db:previewImport', async (event, { sourceType, filePath, clipboardData, format, csvOptions = null, transformCode = null }) => {
     try {
       const getDelimiter = (del) => {
         if (del === 'semicolon') return ';'
@@ -1301,16 +1316,19 @@ export function initDbHandlers() {
       }
 
       if (sourceType === 'file' && !filePath) {
-        return { ok: true, data: EJSON.serialize([]) }
+        return { ok: true, data: JSON.stringify(EJSON.serialize([])) }
       }
       if (sourceType === 'clipboard' && !clipboardData) {
-        return { ok: true, data: EJSON.serialize([]) }
+        return { ok: true, data: JSON.stringify(EJSON.serialize([])) }
       }
 
       let inputStream
       if (sourceType === 'file') {
         if (!fs.existsSync(filePath)) throw new Error('File not found')
         inputStream = fs.createReadStream(filePath)
+        if (filePath.toLowerCase().endsWith('.gz')) {
+          inputStream = inputStream.pipe(zlib.createGunzip())
+        }
       } else {
         const buf = Buffer.from(clipboardData || '', 'utf8')
         inputStream = Readable.from(buf)
@@ -1324,12 +1342,10 @@ export function initDbHandlers() {
           const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
           iterator = rl
         } else if (format === 'json') {
-          const parser = streamJson.parser()
-          iterator = inputStream.pipe(parser).pipe(StreamArray.streamArray())
-          
           parser.on('error', (err) => {
             console.error('[Preview] JSON Parser Error:', err.message)
           })
+          iterator = inputStream.pipe(parser).pipe(StreamArray.streamArray())
         }
 
         inputStream.on('error', (err) => {

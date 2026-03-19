@@ -28,6 +28,7 @@ const ExportTab = ({ tab }) => {
   const [useTransform, setUseTransform] = useState(false)
   const [transformCode, setTransformCode] = useState(`(doc) => {\n  // doc.newField = "hello";\n  return doc;\n}`)
   const [etlError, setEtlError] = useState(null)
+  const [useCompression, setUseCompression] = useState(false)
   const [status, setStatus] = useState('idle') // idle, exporting, done, error
   const [error, setError] = useState(null)
   
@@ -111,12 +112,17 @@ const ExportTab = ({ tab }) => {
     if (format === 'csv') ext = 'csv'
     else if (format === 'jsonl') ext = 'jsonl'
     
+    if (useCompression) ext += '.gz'
+    
     const defaultName = `${collectionName}_export.${ext}`
     const path = await window.electron.ipcRenderer.invoke('shell:saveFile', {
       title: 'Save Export File',
       defaultPath: defaultName,
       filters: [
-        { name: format === 'csv' ? 'CSV Files' : (format === 'jsonl' ? 'JSON Lines' : 'JSON Files'), extensions: [ext] }
+        { 
+          name: format === 'csv' ? 'CSV Files' : (format === 'jsonl' ? 'JSON Lines' : 'JSON Files'), 
+          extensions: [ext] 
+        }
       ]
     })
     if (path) setFilePath(path)
@@ -171,6 +177,7 @@ const ExportTab = ({ tab }) => {
         format,
         csvOptions: format === 'csv' ? { delimiter: csvDelimiter } : null,
         transformCode: useTransform ? transformCode : null,
+        useCompression,
         query: isRawQueryString ? null : parsedQuery,
         queryString: isRawQueryString ? trimmedQuery : null,
         projection
@@ -278,6 +285,27 @@ const ExportTab = ({ tab }) => {
               </div>
             </section>
           )}
+
+          {/* 1.5 Compression */}
+          <section className="bg-bg-secondary/50 border border-border rounded-xl p-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+                  <Download size={16} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">Compression</h3>
+                  <p className="text-[10px] text-text-secondary mt-0.5">Save space with on-the-fly Gzip</p>
+                </div>
+              </div>
+              <div 
+                onClick={() => setUseCompression(!useCompression)}
+                className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${useCompression ? 'bg-accent' : 'bg-bg-tertiary'}`}
+              >
+                <div className={`w-3 h-3 bg-white rounded-full transition-transform ${useCompression ? 'translate-x-5' : 'translate-x-0'}`} />
+              </div>
+            </div>
+          </section>
 
           {/* 1.6 Transformation (ETL) */}
           <section className="bg-bg-secondary/50 border border-border rounded-xl p-5">
