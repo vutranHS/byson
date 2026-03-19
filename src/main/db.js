@@ -18,6 +18,8 @@ import { spawn } from 'child_process'
 
 // Store active connection instances (Mapping ConnectionId -> { client, tunnel })
 const activeClients = {}
+// Store active export/import operations for cancellation
+const activeOperations = new Map()
 
 async function buildMongoUri(connConfig) {
   let uri = connConfig.connectionString || ''
@@ -256,6 +258,29 @@ export function initDbHandlers() {
     ipcMain.removeHandler(channel)
     ipcMain.handle(channel, listener)
   }
+
+  // 0. Abort Operation
+  handle('db:abortOperation', async (_, { operationId }) => {
+    console.log(`[Abort] Requested for operation: ${operationId}`)
+    const op = activeOperations.get(operationId)
+    if (op) {
+      activeOperations.delete(operationId)
+      if (op.reject) {
+        op.reject(new Error('Operation aborted by user'))
+      }
+      if (op.stream && typeof op.stream.destroy === 'function') {
+        try { op.stream.destroy() } catch (e) {}
+      }
+      if (op.writeStream && typeof op.writeStream.destroy === 'function') {
+        try { op.writeStream.destroy() } catch (e) {}
+      }
+      if (op.cursor && typeof op.cursor.close === 'function') {
+        try { op.cursor.close() } catch (e) {}
+      }
+      console.log(`[Abort] Operation ${operationId} successfully aborted.`)
+    }
+    return { ok: true }
+  })
 
   // 1. Handles the "Test Connection" button on the Setup Form
   handle('db:testConnection', async (_, connConfig) => {
@@ -681,7 +706,7 @@ export function initDbHandlers() {
   // Export / Import (Stream Engine)
   // ==========================================
 
-  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, csvOptions = null, transformCode = null, useCompression = false, query = {}, queryString = null, projection = {}, options = {} }) => {
+  handle('db:exportCollection', async (event, { operationId, connId, dbName, collectionName, filePath, format, csvOptions = null, transformCode = null, useCompression = false, query = {}, queryString = null, projection = {}, options = {} }) => {
     const { BrowserWindow } = require('electron')
     const win = BrowserWindow.fromWebContents(event.sender)
     
@@ -753,6 +778,11 @@ export function initDbHandlers() {
         throw new Error('Query did not return a valid cursor. Make sure to use .find() or .aggregate()')
       }
 
+      // Track operation for aborting
+      if (operationId) {
+        activeOperations.set(operationId, { cursor })
+      }
+
       // 2. Prepare the stream
       // countDocuments might not work on all results (like aggregation), 
       // but for simple finds it's fine. 
@@ -771,9 +801,95 @@ export function initDbHandlers() {
 
       console.log(`[Export] Total documents to export (estimed): ${totalDocs}`)
 
+      if (operationId && !activeOperations.has(operationId)) {
+        throw new Error('Operation aborted by user')
+      }
+
       if (options.sort) cursor.sort(options.sort)
       if (options.skip) cursor.skip(options.skip)
       if (options.limit) cursor.limit(options.limit)
+
+      if (format === 'xlsx') {
+        return new Promise(async (resolve, reject) => {
+          if (operationId) {
+            activeOperations.set(operationId, { cursor, reject })
+          }
+          
+          const ExcelJS = require('exceljs')
+          const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+            filename: filePath,
+            useStyles: true,
+            useSharedStrings: true
+          })
+          const worksheet = workbook.addWorksheet(collectionName || 'Export')
+          
+          let headersSet = false
+          let processedCount = 0
+          let lastReportedTime = Date.now()
+  
+          const reportProgress = (force = false) => {
+            if (force || Date.now() - lastReportedTime > 200) {
+              if (operationId && !activeOperations.has(operationId)) return
+              win.webContents.send('db:exportProgress', {
+                operationId,
+                processed: processedCount,
+                total: totalDocs || 0
+              })
+              lastReportedTime = Date.now()
+            }
+          }
+  
+          try {
+            for await (const doc of cursor) {
+              if (operationId && !activeOperations.has(operationId)) {
+                console.log(`[Export XLSX] Aborting loop for ${operationId}`)
+                throw new Error('Operation aborted by user')
+              }
+              let transformed = doc
+              if (transformScript) {
+                try {
+                  const sandbox = { doc }
+                  vm.createContext(sandbox)
+                  transformed = transformScript.runInContext(sandbox)
+                  if (transformed === null || transformed === undefined) continue
+                } catch (e) {
+                  console.error('[Export XLSX ETL Error]', e)
+                }
+              }
+              
+              processedCount++
+              const serialized = EJSON.serialize(transformed)
+              
+              if (!headersSet) {
+                const keys = Object.keys(serialized)
+                worksheet.columns = keys.map(k => ({ header: k, key: k }))
+                headersSet = true
+              }
+              
+              // Flatten nested objects for Excel readability
+              const rowData = {}
+              for (const [k, v] of Object.entries(serialized)) {
+                if (v === null || v === undefined) {
+                  rowData[k] = ''
+                } else if (typeof v === 'object') {
+                  rowData[k] = JSON.stringify(v)
+                } else {
+                  rowData[k] = v
+                }
+              }
+              worksheet.addRow(rowData).commit()
+              reportProgress()
+            }
+            
+            await workbook.commit()
+            reportProgress(true)
+            resolve({ ok: true, count: processedCount })
+          } catch (err) {
+            console.error('[Export XLSX Error]', err)
+            reject(err)
+          }
+        })
+      }
 
       const writeStream = fs.createWriteStream(filePath)
       let processedCount = 0
@@ -782,6 +898,9 @@ export function initDbHandlers() {
       const transformStream = new Transform({
         writableObjectMode: true,
         transform(doc, encoding, callback) {
+          if (operationId && !activeOperations.has(operationId)) {
+            return callback(new Error('Operation aborted by user'))
+          }
           // Apply ETL if present
           let currentDoc = doc
           if (transformScript) {
@@ -832,7 +951,9 @@ export function initDbHandlers() {
           }
 
           if (Date.now() - lastReportedTime > 200) {
+            if (operationId && !activeOperations.has(operationId)) return callback(null, chunk)
             win.webContents.send('db:exportProgress', {
+              operationId,
               processed: processedCount,
               total: totalDocs,
               percentage: totalDocs > 0 ? Math.round((processedCount / totalDocs) * 100) : 0
@@ -857,17 +978,23 @@ export function initDbHandlers() {
       // Handle stream events by awaiting the promise
       return await new Promise((resolve, reject) => {
         writeStream.on('finish', () => {
+          if (operationId && !activeOperations.has(operationId)) {
+            console.log(`[Export] Operation ${operationId} aborted, ignoring finish event.`)
+            return
+          }
           console.log(`[Export] Successfully exported ${processedCount} documents.`)
-          win.webContents.send('db:exportProgress', { processed: processedCount, total: totalDocs, percentage: 100 })
+          win.webContents.send('db:exportProgress', { operationId, processed: processedCount, total: totalDocs, percentage: 100 })
           resolve({ ok: true, count: processedCount })
         })
         
         writeStream.on('error', (err) => {
+          if (operationId && !activeOperations.has(operationId)) return
           console.error('[Export] Write Stream Error:', err)
           reject(err)
         })
 
         transformStream.on('error', (err) => {
+          if (operationId && !activeOperations.has(operationId)) return
           console.error('[Export] Transform Stream Error:', err)
           reject(err)
         })
@@ -875,6 +1002,10 @@ export function initDbHandlers() {
         // In mongodb 7.x, the cursor is an AsyncIterable.
         // We use Readable.from() to convert it into a standard Node.js Readable stream.
         const mongoStream = Readable.from(cursor)
+        
+        if (operationId) {
+          activeOperations.set(operationId, { cursor, stream: mongoStream, writeStream, reject })
+        }
         
         mongoStream.on('error', (err) => {
           console.error('[Export] MongoDB Cursor Error (Readable.from):', err)
@@ -892,6 +1023,10 @@ export function initDbHandlers() {
         let pipeChain = mongoStream
           .pipe(transformStream)
           .on('error', (e) => {
+            if (operationId && !activeOperations.has(operationId)) {
+              console.log(`[Export] Ignoring Transform Pipe Error heavily after Abort.`)
+              return
+            }
             console.error('[Export] Pipe Error at Transform:', e)
             reject(e)
           })
@@ -908,6 +1043,10 @@ export function initDbHandlers() {
         pipeChain
           .pipe(writeStream)
           .on('error', (e) => {
+            if (operationId && !activeOperations.has(operationId)) {
+              console.log(`[Export] Ignoring Write Pipe Error heavily after Abort.`)
+              return
+            }
             console.error('[Export] Pipe Error at WriteStream:', e)
             reject(e)
           })
@@ -919,17 +1058,19 @@ export function initDbHandlers() {
       console.error('Export Error:', err)
       return { ok: false, error: err.message }
     } finally {
+      if (operationId) activeOperations.delete(operationId)
       if (exportClient) exportClient.close()
       if (exportTunnel) exportTunnel.close()
     }
   })
 
   // Import Collection Logic
-  ipcMain.handle('db:importCollection', async (event, { connId, dbName, collectionName, sourceType, filePath, clipboardData, format, options = {} }) => {
-    let importClient = null
-    let importTunnel = null
+  ipcMain.handle('db:importCollection', async (event, { operationId, connId, dbName, collectionName, sourceType, filePath, clipboardData, format, options = {} }) => {
+    return new Promise(async (resolve, reject) => {
+      let importClient = null
+      let importTunnel = null
 
-    try {
+      try {
       const configRes = await Promise.resolve(ipcMain.handlers ? ipcMain.handlers['storage:getConnection'](null, connId) : { ok: false, error: 'Cannot find storage handler' })
       // Since handlers mapping might not exist or be accessible directly across electron versions, let's use the local store.
       // Actually we have a get connection store logic in index.js, but since db.js is cleanly separated, we need to get the config differently.
@@ -995,6 +1136,11 @@ export function initDbHandlers() {
         inputStream = Readable.from(buf)
       }
 
+      // Track operation for aborting
+      if (operationId) {
+        activeOperations.set(operationId, { stream: inputStream, reject })
+      }
+
       const flushBatch = async () => {
         if (batch.length === 0) return
         try {
@@ -1034,6 +1180,7 @@ export function initDbHandlers() {
 
       const reportProgress = (force = false) => {
         if (force || Date.now() - lastReportedTime > 200) {
+          if (operationId && !activeOperations.has(operationId)) return
           let perc = 0
           if (force) {
             perc = 100
@@ -1042,6 +1189,7 @@ export function initDbHandlers() {
           }
 
           win.webContents.send('db:importProgress', {
+            operationId,
             processed: processedCount,
             success: successCount,
             failed: failedCount,
@@ -1071,6 +1219,28 @@ export function initDbHandlers() {
         try {
           if (format === 'csv') {
             iterator = inputStream.pipe(csvParser({ separator: delimiter }))
+          } else if (format === 'xlsx') {
+            const ExcelJS = require('exceljs')
+            const workbook = new ExcelJS.Workbook()
+            await workbook.xlsx.read(inputStream)
+            const worksheet = workbook.getWorksheet(1)
+            const rows = []
+            let headers = []
+            if (worksheet) {
+              worksheet.eachRow((row, rowNumber) => {
+                if (rowNumber === 1) {
+                  headers = Array.isArray(row.values) ? row.values.slice(1) : []
+                } else {
+                  const obj = {}
+                  const values = Array.isArray(row.values) ? row.values.slice(1) : []
+                  headers.forEach((h, i) => {
+                    if (h) obj[h] = values[i]
+                  })
+                  rows.push(obj)
+                }
+              })
+            }
+            iterator = rows
           } else if (format === 'jsonl') {
             const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
             iterator = rl
@@ -1094,6 +1264,9 @@ export function initDbHandlers() {
           }
 
           for await (const chunk of iterator) {
+            if (operationId && !activeOperations.has(operationId)) {
+              throw new Error('Operation aborted by user')
+            }
             let doc
             try {
               if (format === 'json') {
@@ -1165,19 +1338,25 @@ export function initDbHandlers() {
           throw e
         }
 
+        if (operationId && !activeOperations.has(operationId)) {
+          console.log(`[Import] Operation ${operationId} aborted. Ignoring finish event.`)
+          return
+        }
+
         reportProgress(true)
       }
 
       await runImport()
-      return { ok: true }
+      resolve({ ok: true })
 
     } catch (err) {
       console.error('[Import Error]', err)
-      return { ok: false, error: err.message }
+      reject(err)
     } finally {
-      // Don't close the active connection instance here because it's shared
+      if (operationId) activeOperations.delete(operationId)
     }
   })
+})
 
   // BSON Tools Management
   ipcMain.handle('db:checkBsonTools', async () => {
@@ -1338,6 +1517,28 @@ export function initDbHandlers() {
       try {
         if (format === 'csv') {
           iterator = inputStream.pipe(csvParser({ separator: delimiter }))
+        } else if (format === 'xlsx') {
+          const ExcelJS = require('exceljs')
+          const workbook = new ExcelJS.Workbook()
+          await workbook.xlsx.read(inputStream)
+          const worksheet = workbook.getWorksheet(1)
+          const rows = []
+          let headers = []
+          if (worksheet) {
+            worksheet.eachRow((row, rowNumber) => {
+              if (rowNumber === 1) {
+                headers = Array.isArray(row.values) ? row.values.slice(1) : []
+              } else if (rows.length < 10) {
+                const obj = {}
+                const values = Array.isArray(row.values) ? row.values.slice(1) : []
+                headers.forEach((h, i) => {
+                  if (h) obj[h] = values[i]
+                })
+                rows.push(obj)
+              }
+            })
+          }
+          iterator = rows
         } else if (format === 'jsonl') {
           const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
           iterator = rl

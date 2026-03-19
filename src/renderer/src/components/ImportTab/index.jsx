@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   Upload, 
   Settings, 
@@ -13,12 +13,13 @@ import {
   Monitor,
   Clipboard,
   FileText,
-  Code
+  Code,
+  FileSpreadsheet
 } from 'lucide-react'
 
 const ImportTab = ({ tab }) => {
   const [sourceType, setSourceType] = useState('file') // file, clipboard
-  const [format, setFormat] = useState('json') // jsonl, json, csv
+  const [format, setFormat] = useState('json') // jsonl, json, csv, xlsx
   const [filePath, setFilePath] = useState('')
   const [clipboardData, setClipboardData] = useState('')
   const [options, setOptions] = useState({
@@ -35,7 +36,13 @@ const ImportTab = ({ tab }) => {
   
   const [isImporting, setIsImporting] = useState(false)
   const [progress, setProgress] = useState(null) // { processed, success, failed, percentage }
-  const [status, setStatus] = useState('idle') // idle, importing, done, error
+  const [status, setStatus] = useState('idle') // idle, importing, done, error, aborted
+  const [operationId, setOperationId] = useState(null)
+  const opIdRef = useRef(null)
+
+  useEffect(() => {
+    opIdRef.current = operationId
+  }, [operationId])
   const [error, setError] = useState(null)
   
   const [previewData, setPreviewData] = useState([])
@@ -52,11 +59,11 @@ const ImportTab = ({ tab }) => {
       const path = await window.electron.ipcRenderer.invoke('shell:openFile', {
         title: 'Select Import File',
         filters: [
-          { name: 'Supported Files', extensions: ['json', 'jsonl', 'jsonlines', 'csv', 'tsv', 'gz'] },
+          { name: 'Supported Files', extensions: ['json', 'jsonl', 'jsonlines', 'csv', 'tsv', 'xlsx', 'gz'] },
+          { name: 'Excel Spreadsheet', extensions: ['xlsx'] },
           { name: 'JSON Array', extensions: ['json', 'json.gz'] },
           { name: 'JSON Lines', extensions: ['jsonl', 'jsonlines', 'jsonl.gz', 'jsonlines.gz'] },
           { name: 'CSV Files', extensions: ['csv', 'tsv', 'csv.gz', 'tsv.gz'] },
-          { name: 'Gzip Compressed', extensions: ['gz'] },
           { name: 'All Files', extensions: ['*'] }
         ]
       })
@@ -68,6 +75,7 @@ const ImportTab = ({ tab }) => {
         const baseName = isGzip ? lowerPath.slice(0, -3) : lowerPath
         
         if (baseName.endsWith('.csv') || baseName.endsWith('.tsv')) setFormat('csv')
+        else if (baseName.endsWith('.xlsx')) setFormat('xlsx')
         else if (baseName.endsWith('.jsonl') || baseName.endsWith('.jsonlines')) setFormat('jsonl')
         else setFormat('json')
       }
@@ -87,12 +95,16 @@ const ImportTab = ({ tab }) => {
     }
     
     setIsImporting(true)
+    const opId = crypto.randomUUID()
+    setOperationId(opId)
+    opIdRef.current = opId
     setStatus('importing')
     setError(null)
     setProgress({ processed: 0, success: 0, failed: 0, percentage: 0 })
 
     try {
       const result = await window.electron.ipcRenderer.invoke('db:importCollection', {
+        operationId: opId,
         connId,
         dbName,
         collectionName,
@@ -107,22 +119,37 @@ const ImportTab = ({ tab }) => {
       })
 
       if (result.ok) {
-        setStatus('done')
+        setStatus(prev => prev === 'aborted' ? 'aborted' : 'done')
       } else {
-        setStatus('error')
-        setError(result.error)
+        setStatus(prev => prev === 'aborted' ? 'aborted' : 'error')
+        if (status !== 'aborted') setError(result.error)
       }
     } catch (err) {
-      setStatus('error')
-      setError(err.message)
+      if (status !== 'aborted') {
+        setStatus('error')
+        setError(err.message)
+      }
     } finally {
       setIsImporting(false)
+    }
+  }
+
+  const handleAbort = async () => {
+    if (!operationId) return
+    try {
+      await window.electron.ipcRenderer.invoke('db:abortOperation', { operationId })
+      setStatus('aborted')
+      setIsImporting(false)
+    } catch (e) {
+      console.error('Failed to abort import', e)
     }
   }
 
   // Listen for progress updates
   useEffect(() => {
     const unsubscribe = window.electron.ipcRenderer.on('db:importProgress', (e, data) => {
+      // Strict Isolation: Ignore any progress from old operations OR if no operation is active
+      if (!opIdRef.current || data.operationId !== opIdRef.current) return
       setProgress(data)
     })
     return () => unsubscribe()
@@ -236,7 +263,7 @@ const ImportTab = ({ tab }) => {
                 <input
                   type="text"
                   readOnly
-                  placeholder="Select source file (.json, .csv, .jsonl)"
+                  placeholder="Select source file (.json, .csv, .jsonl, .xlsx)"
                   value={filePath}
                   className="flex-1 bg-bg-tertiary border border-border rounded px-3 py-1.5 text-xs text-text-primary focus:outline-none"
                 />
@@ -262,11 +289,12 @@ const ImportTab = ({ tab }) => {
             <h3 className="text-xs font-bold text-text-secondary uppercase tracking-widest mb-4 flex items-center gap-2">
               <Settings size={14} /> 2. Data Format
             </h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {[
                 { id: 'json', label: 'JSON Array', icon: <FileJson size={16} /> },
                 { id: 'jsonl', label: 'JSON Lines', icon: <FileJson size={16} /> },
-                { id: 'csv', label: 'CSV', icon: <FileType size={16} /> }
+                { id: 'csv', label: 'CSV', icon: <FileType size={16} /> },
+                { id: 'xlsx', label: 'XLSX', icon: <FileSpreadsheet size={16} /> }
               ].map(f => (
                 <button
                   key={f.id}
@@ -444,12 +472,11 @@ const ImportTab = ({ tab }) => {
 
           {/* Action Button */}
           <button
-            disabled={isImporting}
-            onClick={startImport}
-            className={`w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${isImporting ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-500 hover:scale-[1.02] active:scale-[0.98]'}`}
+            onClick={isImporting ? handleAbort : startImport}
+            className={`w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${isImporting ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-green-600 text-white hover:bg-green-500 hover:scale-[1.02] active:scale-[0.98]'}`}
           >
             {isImporting ? (
-              <><RefreshCw size={18} className="animate-spin" /> Importing...</>
+              <><X size={18} /> Stop Import</>
             ) : (
               <><Upload size={18} /> Start Import</>
             )}

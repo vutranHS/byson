@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   Download, 
   Settings, 
@@ -11,7 +11,8 @@ import {
   Table as TableIcon,
   ChevronRight,
   Monitor,
-  Code
+  Code,
+  FileSpreadsheet
 } from 'lucide-react'
 import { EJSON } from 'bson'
 
@@ -29,7 +30,14 @@ const ExportTab = ({ tab }) => {
   const [transformCode, setTransformCode] = useState(`(doc) => {\n  // doc.newField = "hello";\n  return doc;\n}`)
   const [etlError, setEtlError] = useState(null)
   const [useCompression, setUseCompression] = useState(false)
-  const [status, setStatus] = useState('idle') // idle, exporting, done, error
+  const [status, setStatus] = useState('idle') // idle, exporting, done, error, aborted
+  const [operationId, setOperationId] = useState(null)
+  const opIdRef = useRef(null)
+
+  useEffect(() => {
+    opIdRef.current = operationId
+  }, [operationId])
+
   const [error, setError] = useState(null)
   
   // Initialize query filter with stringified tab.initialQuery if provided
@@ -107,12 +115,20 @@ const ExportTab = ({ tab }) => {
     }
   }
 
+  const handleAbort = async () => {
+    if (!operationId) return
+    try {
+      await window.electron.ipcRenderer.invoke('db:abortOperation', { operationId })
+      setStatus('aborted')
+      setIsExporting(false)
+    } catch (e) {
+      console.error('Failed to abort export', e)
+    }
+  }
+
   const handleBrowse = async () => {
-    let ext = 'json'
-    if (format === 'csv') ext = 'csv'
-    else if (format === 'jsonl') ext = 'jsonl'
-    
-    if (useCompression) ext += '.gz'
+    let ext = format === 'xlsx' ? 'xlsx' : (format === 'csv' ? 'csv' : 'jsonl')
+    if (useCompression && format !== 'xlsx') ext += '.gz'
     
     const defaultName = `${collectionName}_export.${ext}`
     const path = await window.electron.ipcRenderer.invoke('shell:saveFile', {
@@ -120,7 +136,7 @@ const ExportTab = ({ tab }) => {
       defaultPath: defaultName,
       filters: [
         { 
-          name: format === 'csv' ? 'CSV Files' : (format === 'jsonl' ? 'JSON Lines' : 'JSON Files'), 
+          name: format === 'xlsx' ? 'Excel Spreadsheet' : (format === 'csv' ? 'CSV Files' : (format === 'jsonl' ? 'JSON Lines' : 'JSON Files')), 
           extensions: [ext] 
         }
       ]
@@ -135,6 +151,9 @@ const ExportTab = ({ tab }) => {
     }
     
     setIsExporting(true)
+    const opId = crypto.randomUUID()
+    setOperationId(opId)
+    opIdRef.current = opId
     setStatus('exporting')
     setError(null)
     setProgress({ processed: 0, total: 0, percentage: 0 })
@@ -170,6 +189,7 @@ const ExportTab = ({ tab }) => {
       }
 
       const result = await window.electron.ipcRenderer.invoke('db:exportCollection', {
+        operationId: opId,
         connId,
         dbName,
         collectionName,
@@ -184,22 +204,31 @@ const ExportTab = ({ tab }) => {
       })
 
       if (result.ok) {
-        setStatus('done')
+        setStatus(prev => prev === 'aborted' ? 'aborted' : 'done')
       } else {
-        setStatus('error')
-        setError(result.error)
+        setStatus(prev => {
+          if (prev === 'aborted') return 'aborted'
+          setError(result.error)
+          return 'error'
+        })
       }
     } catch (err) {
-      setStatus('error')
-      setError(err.message)
+      setStatus(prev => {
+        if (prev === 'aborted') return 'aborted'
+        setError(err.message)
+        return 'error'
+      })
     } finally {
       setIsExporting(false)
+      setOperationId(null)
     }
   }
 
   // Listen for progress
   useEffect(() => {
     const unsubscribe = window.electron.ipcRenderer.on('db:exportProgress', (e, data) => {
+      // Strict Isolation: Ignore any progress from old operations OR if no operation is active
+      if (!opIdRef.current || data.operationId !== opIdRef.current) return
       setProgress(data)
     })
     return () => unsubscribe()
@@ -244,7 +273,8 @@ const ExportTab = ({ tab }) => {
               {[
                 { id: 'jsonl', label: 'JSONL', icon: <FileJson size={16} />, desc: 'One doc/line' },
                 { id: 'json', label: 'JSON', icon: <FileJson size={16} />, desc: 'Standard array' },
-                { id: 'csv', label: 'CSV', icon: <FileType size={16} />, desc: 'Spreadsheet' }
+                { id: 'csv', label: 'CSV', icon: <FileType size={16} />, desc: 'Spreadsheet' },
+                { id: 'xlsx', label: 'XLSX', icon: <FileSpreadsheet size={16} />, desc: 'Excel' }
               ].map(f => (
                 <button
                   key={f.id}
@@ -419,12 +449,11 @@ const ExportTab = ({ tab }) => {
 
           {/* Action Button */}
           <button
-            disabled={isExporting}
-            onClick={startExport}
-            className={`w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${isExporting ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-accent text-white hover:bg-accent-hover hover:scale-[1.02] active:scale-[0.98]'}`}
+            onClick={isExporting ? handleAbort : startExport}
+            className={`w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${isExporting ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-accent text-white hover:bg-accent-hover hover:scale-[1.02] active:scale-[0.98]'}`}
           >
             {isExporting ? (
-              <><RefreshCw size={18} className="animate-spin" /> Exporting...</>
+              <><X size={18} /> Stop Export</>
             ) : (
               <><Play size={18} fill="currentColor" /> Start Export</>
             )}
