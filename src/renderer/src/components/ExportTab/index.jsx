@@ -23,6 +23,7 @@ const ExportTab = ({ tab }) => {
   const [allFields, setAllFields] = useState([])
   const [selectedFields, setSelectedFields] = useState([])
   const [limit, setLimit] = useState(100)
+  const [csvDelimiter, setCsvDelimiter] = useState('comma') // comma, semicolon, tab, pipe
   const [status, setStatus] = useState('idle') // idle, exporting, done, error
   const [error, setError] = useState(null)
   
@@ -134,6 +135,7 @@ const ExportTab = ({ tab }) => {
         collectionName,
         filePath,
         format,
+        csvOptions: format === 'csv' ? { delimiter: csvDelimiter } : null,
         query: isRawQueryString ? null : parsedQuery,
         queryString: isRawQueryString ? trimmedQuery : null,
         projection
@@ -213,6 +215,34 @@ const ExportTab = ({ tab }) => {
               ))}
             </div>
           </section>
+          
+          {/* 1.5 CSV Options (Only shown if format is csv) */}
+          {format === 'csv' && (
+            <section className="bg-bg-secondary/50 border border-border rounded-xl p-5 animate-in slide-in-from-top-2 duration-200">
+              <h3 className="text-xs font-bold text-text-secondary uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Settings size={14} /> CSV Options
+              </h3>
+              <div className="space-y-3">
+                <label className="text-[10px] text-text-secondary uppercase font-bold px-1">Delimiter</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'comma', label: 'Comma (,)' },
+                    { id: 'semicolon', label: 'Semicolon (;)' },
+                    { id: 'tab', label: 'Tab (\\t)' },
+                    { id: 'pipe', label: 'Pipe (|)' }
+                  ].map(d => (
+                    <button
+                      key={d.id}
+                      onClick={() => setCsvDelimiter(d.id)}
+                      className={`px-3 py-2 text-[11px] rounded border transition-all ${csvDelimiter === d.id ? 'bg-accent/10 border-accent text-accent' : 'bg-bg-tertiary/30 border-transparent text-text-secondary hover:border-border'}`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* 2. Filter Query */}
           <section className="bg-bg-secondary/50 border border-border rounded-xl p-5">

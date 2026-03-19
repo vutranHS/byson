@@ -680,9 +680,17 @@ export function initDbHandlers() {
   // Export / Import (Stream Engine)
   // ==========================================
 
-  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, query = {}, queryString = null, projection = {}, options = {} }) => {
+  handle('db:exportCollection', async (event, { connId, dbName, collectionName, filePath, format, csvOptions = null, query = {}, queryString = null, projection = {}, options = {} }) => {
     const { BrowserWindow } = require('electron')
     const win = BrowserWindow.fromWebContents(event.sender)
+    
+    const getDelimiter = (del) => {
+      if (del === 'semicolon') return ';'
+      if (del === 'tab') return '\t'
+      if (del === 'pipe') return '|'
+      return ','
+    }
+    const delimiter = getDelimiter(csvOptions?.delimiter)
     
     let exportClient = null
     let exportTunnel = null
@@ -778,11 +786,11 @@ export function initDbHandlers() {
                 const str = typeof v === 'object' ? JSON.stringify(v) : String(v)
                 return `"${str.replace(/"/g, '""')}"`
               })
-              const row = values.join(',') + '\n'
+              const row = values.join(delimiter) + '\n'
               
               if (processedCount === 1) {
                 const headers = keys.map(k => `"${String(k).replace(/"/g, '""')}"`)
-                chunk = headers.join(',') + '\n' + row
+                chunk = headers.join(delimiter) + '\n' + row
               } else {
                 chunk = row
               }
@@ -1003,9 +1011,13 @@ export function initDbHandlers() {
 
       const runImport = async () => {
         let iterator
+        const delimiter = options.csvOptions?.delimiter === 'semicolon' ? ';' : 
+                         options.csvOptions?.delimiter === 'tab' ? '\t' : 
+                         options.csvOptions?.delimiter === 'pipe' ? '|' : ','
+
         try {
           if (format === 'csv') {
-            iterator = inputStream.pipe(csvParser())
+            iterator = inputStream.pipe(csvParser({ separator: delimiter }))
           } else if (format === 'jsonl') {
             const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
             iterator = rl
@@ -1210,8 +1222,15 @@ export function initDbHandlers() {
   })
 
   // Preview Import Logic
-  ipcMain.handle('db:previewImport', async (event, { sourceType, filePath, clipboardData, format }) => {
+  ipcMain.handle('db:previewImport', async (event, { sourceType, filePath, clipboardData, format, csvOptions = null }) => {
     try {
+      const getDelimiter = (del) => {
+        if (del === 'semicolon') return ';'
+        if (del === 'tab') return '\t'
+        if (del === 'pipe') return '|'
+        return ','
+      }
+      const delimiter = getDelimiter(csvOptions?.delimiter)
       if (sourceType === 'file' && !filePath) {
         return { ok: true, data: EJSON.serialize([]) }
       }
@@ -1231,7 +1250,7 @@ export function initDbHandlers() {
       let iterator
       try {
         if (format === 'csv') {
-          iterator = inputStream.pipe(csvParser())
+          iterator = inputStream.pipe(csvParser({ separator: delimiter }))
         } else if (format === 'jsonl') {
           const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
           iterator = rl

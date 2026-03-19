@@ -23,7 +23,10 @@ const ImportTab = ({ tab }) => {
   const [options, setOptions] = useState({
     importMode: 'stop', // stop, skip, upsert
     dropCollection: false,
-    batchSize: 1000
+    batchSize: 1000,
+    csvOptions: {
+      delimiter: 'comma'
+    }
   })
   
   const [isImporting, setIsImporting] = useState(false)
@@ -129,7 +132,8 @@ const ImportTab = ({ tab }) => {
         sourceType,
         filePath: sourceType === 'file' ? filePath : null,
         clipboardData: sourceType === 'clipboard' ? clipboardData : null,
-        format
+        format,
+        csvOptions: format === 'csv' ? options.csvOptions : null
       })
       if (res.ok) {
         const parsed = JSON.parse(res.data)
@@ -163,7 +167,7 @@ const ImportTab = ({ tab }) => {
   // Auto fetch preview whenever source changes
   useEffect(() => {
     fetchPreview()
-  }, [sourceType, filePath, clipboardData, format])
+  }, [sourceType, filePath, clipboardData, format, options.csvOptions])
 
   return (
     <div className="flex-1 flex flex-col bg-bg-primary overflow-auto p-6 scrollbar-premium">
@@ -254,6 +258,34 @@ const ImportTab = ({ tab }) => {
               ))}
             </div>
           </section>
+
+          {/* 2.5 CSV Options (Only shown if format is csv) */}
+          {format === 'csv' && (
+            <section className="bg-bg-secondary/50 border border-border rounded-xl p-5 animate-in slide-in-from-top-2 duration-200">
+              <h3 className="text-xs font-bold text-text-secondary uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Settings size={14} /> CSV Options
+              </h3>
+              <div className="space-y-3">
+                <label className="text-[10px] text-text-secondary uppercase font-bold px-1">Delimiter</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'comma', label: 'Comma (,)' },
+                    { id: 'semicolon', label: 'Semicolon (;)' },
+                    { id: 'tab', label: 'Tab (\\t)' },
+                    { id: 'pipe', label: 'Pipe (|)' }
+                  ].map(d => (
+                    <button
+                      key={d.id}
+                      onClick={() => setOptions({ ...options, csvOptions: { ...options.csvOptions, delimiter: d.id } })}
+                      className={`px-3 py-2 text-[11px] rounded border transition-all ${options.csvOptions?.delimiter === d.id ? 'bg-green-500/10 border-green-500/50 text-green-400' : 'bg-bg-tertiary/30 border-transparent text-text-secondary hover:border-border'}`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* 3. Field Mapping */}
           <section className="bg-bg-secondary/50 border border-border rounded-xl p-5 h-64 flex flex-col">
