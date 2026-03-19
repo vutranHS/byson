@@ -21,7 +21,8 @@ const ImportTab = ({ tab }) => {
   const [filePath, setFilePath] = useState('')
   const [clipboardData, setClipboardData] = useState('')
   const [options, setOptions] = useState({
-    stopOnError: true,
+    importMode: 'stop', // stop, skip, upsert
+    dropCollection: false,
     batchSize: 1000
   })
   
@@ -44,15 +45,19 @@ const ImportTab = ({ tab }) => {
       const path = await window.electron.ipcRenderer.invoke('shell:openFile', {
         title: 'Select Import File',
         filters: [
-          { name: 'Supported Files', extensions: ['json', 'jsonl', 'csv', 'tsv'] },
+          { name: 'Supported Files', extensions: ['json', 'jsonl', 'jsonlines', 'csv', 'tsv'] },
+          { name: 'JSON Array', extensions: ['json'] },
+          { name: 'JSON Lines', extensions: ['jsonl', 'jsonlines'] },
+          { name: 'CSV Files', extensions: ['csv', 'tsv'] },
           { name: 'All Files', extensions: ['*'] }
         ]
       })
       if (path) {
         setFilePath(path)
         // Auto-detect format based on extension
-        if (path.toLowerCase().endsWith('.csv')) setFormat('csv')
-        else if (path.toLowerCase().endsWith('.jsonl')) setFormat('jsonl')
+        const lowerPath = path.toLowerCase()
+        if (lowerPath.endsWith('.csv') || lowerPath.endsWith('.tsv')) setFormat('csv')
+        else if (lowerPath.endsWith('.jsonl') || lowerPath.endsWith('.jsonlines')) setFormat('jsonl')
         else setFormat('json')
       }
     } catch (err) {
@@ -292,17 +297,47 @@ const ImportTab = ({ tab }) => {
               <span className="flex items-center gap-2"><Settings size={14} /> 4. Options</span>
             </h3>
             <div className="space-y-4">
-              <label className="flex items-center justify-between cursor-pointer group">
-                <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">Stop on error</span>
-                <input 
-                  type="checkbox" 
-                  checked={options.stopOnError}
-                  onChange={(e) => setOptions({...options, stopOnError: e.target.checked})}
-                  className="accent-green-500"
-                />
-              </label>
+              <div className="space-y-2">
+                <span className="text-[10px] text-text-secondary uppercase tracking-wider font-bold">Import Mode</span>
+                <div className="space-y-1.5">
+                  {[
+                    { id: 'stop', label: 'Stop on Duplicate (Default)', desc: 'Stops import at first error' },
+                    { id: 'skip', label: 'Skip Duplicates', desc: 'Ignore errors and continue' },
+                    { id: 'upsert', label: 'Upsert Mode', desc: 'Update if _id exists' }
+                  ].map(m => (
+                    <label key={m.id} className="flex items-start gap-2 p-2 rounded border border-border/50 hover:bg-bg-tertiary/50 cursor-pointer transition-colors group">
+                      <input 
+                        type="radio" 
+                        name="importMode"
+                        checked={options.importMode === m.id}
+                        onChange={() => setOptions({...options, importMode: m.id})}
+                        className="mt-0.5 accent-green-500"
+                      />
+                      <div className="flex flex-col">
+                        <span className={`text-[11px] font-bold ${options.importMode === m.id ? 'text-green-400' : 'text-text-primary'}`}>{m.label}</span>
+                        <span className="text-[9px] text-text-secondary">{m.desc}</span>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-border/30">
+                <label className="flex items-center justify-between cursor-pointer group">
+                  <div className="flex flex-col">
+                    <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">Drop collection before import</span>
+                    <span className="text-[9px] text-red-400 opacity-70 italic">Warning: This wipes existing data</span>
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    checked={options.dropCollection}
+                    onChange={(e) => setOptions({...options, dropCollection: e.target.checked})}
+                    className="accent-red-500"
+                  />
+                </label>
+              </div>
               
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between pt-2 border-t border-border/30">
                 <span className="text-xs text-text-secondary">Batch Size (documents)</span>
                 <input 
                   type="number"

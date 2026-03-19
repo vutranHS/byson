@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import vm from 'vm'
-import { MongoClient, ServerApiVersion } from 'mongodb'
+import { MongoClient, ServerApiVersion, ObjectId } from 'mongodb'
 import { executeMongoshQuery } from './queryRunner'
 import { EJSON } from 'bson'
 import { initStorageHandlers, getConnectionById } from './storage'
@@ -911,6 +911,19 @@ export function initDbHandlers() {
       const db = state.client.db(dbName)
       const collection = db.collection(collectionName)
 
+      // Drop collection if requested before starting import
+      if (options.dropCollection) {
+        try {
+          await collection.drop()
+          console.log(`[Import] Dropped collection ${dbName}.${collectionName} before import.`)
+        } catch (e) {
+          // Ignore error if collection doesn't exist
+          if (e.codeName !== 'NamespaceNotFound') {
+            throw e
+          }
+        }
+      }
+
       const win = require('electron').BrowserWindow.fromWebContents(event.sender)
 
       let processedCount = 0
@@ -935,18 +948,34 @@ export function initDbHandlers() {
       const flushBatch = async () => {
         if (batch.length === 0) return
         try {
-          // ordered: false allows continuing insert even if some documents fail (e.g. unique index violation)
-          const res = await collection.insertMany(batch, { ordered: !options.stopOnError })
-          successCount += res.insertedCount
+          if (options.importMode === 'upsert') {
+            const operations = batch.map(doc => ({
+              replaceOne: {
+                filter: { _id: (doc._id !== undefined && doc._id !== null) ? doc._id : new ObjectId() },
+                replacement: doc,
+                upsert: true
+              }
+            }))
+            const res = await collection.bulkWrite(operations, { ordered: false })
+            successCount += (res.upsertedCount + res.modifiedCount + res.matchedCount)
+          } else {
+            // ordered: true (stop) or false (skip)
+            const isOrdered = options.importMode === 'stop'
+            const res = await collection.insertMany(batch, { ordered: isOrdered })
+            successCount += res.insertedCount
+          }
         } catch (err) {
-          if (options.stopOnError) throw err
+          if (options.importMode === 'stop') throw err
           
           if (err.writeErrors) {
-            // WriteErrors contain details about which ones failed. The successful ones still get inserted (if ordered:false)
-            successCount += err.insertedDocs ? err.insertedDocs.length : 0
+            // For 'skip' mode or partial 'upsert' errors
+            successCount += err.insertedDocs ? err.insertedDocs.length : (batch.length - err.writeErrors.length)
             failedCount += err.writeErrors.length
+          } else if (err.result && err.result.result) {
+            // Handle bulkWrite result errors
+            successCount += err.result.result.nInserted || 0
+            failedCount += (err.result.result.writeErrors ? err.result.result.writeErrors.length : 0)
           } else {
-            // If it's a catastrophic error not returning writeErrors
             failedCount += batch.length
           }
         }
@@ -974,44 +1003,59 @@ export function initDbHandlers() {
 
       const runImport = async () => {
         let iterator
-        if (format === 'csv') {
-          iterator = inputStream.pipe(csvParser())
-        } else if (format === 'jsonl') {
-          const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
-          iterator = rl
-        } else if (format === 'json') {
-          iterator = inputStream.pipe(streamJson.parser()).pipe(StreamArray.streamArray())
-        }
+        try {
+          if (format === 'csv') {
+            iterator = inputStream.pipe(csvParser())
+          } else if (format === 'jsonl') {
+            const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
+            iterator = rl
+          } else if (format === 'json') {
+            const parser = streamJson.parser()
+            iterator = inputStream.pipe(parser).pipe(StreamArray.streamArray())
+            
+            parser.on('error', (err) => {
+              console.error('[Import] JSON Parser Error:', err.message)
+            })
+          }
 
-        for await (const chunk of iterator) {
-          let doc
-          try {
-            if (format === 'json') {
-              doc = EJSON.deserialize(chunk.value)
-            } else if (format === 'jsonl') {
-              let line = chunk.trim()
-              if (!line) continue
-              if (line.endsWith(',')) line = line.slice(0, -1)
-              doc = EJSON.parse(line)
-            } else {
-              // csv
-              // Optional: csv columns might be stringified JSON from export, but EJSON.deserialize safely ignores flats
-              doc = EJSON.deserialize(chunk)
-            }
+          inputStream.on('error', (err) => {
+            console.error('[Import] Input Stream Error:', err.message)
+          })
 
-            if (!doc || Object.keys(doc).length === 0) continue
+          if (iterator && typeof iterator.on === 'function') {
+            iterator.on('error', (err) => {
+              console.error('[Import] Iterator Error:', err.message)
+            })
+          }
 
-            // Filter out fields if user made a specific selection
-            if (options.selectedFields) {
-              const filteredDoc = {}
-              const selectedSet = new Set(options.selectedFields)
-              for (const k of Object.keys(doc)) {
-                if (selectedSet.has(k)) {
-                  filteredDoc[k] = doc[k]
-                }
+          for await (const chunk of iterator) {
+            let doc
+            try {
+              if (format === 'json') {
+                doc = EJSON.deserialize(chunk.value)
+              } else if (format === 'jsonl') {
+                let line = chunk.trim()
+                if (!line) continue
+                if (line.endsWith(',')) line = line.slice(0, -1)
+                doc = EJSON.parse(line)
+              } else {
+                // csv
+                doc = EJSON.deserialize(chunk)
               }
-              doc = filteredDoc
-            }
+
+              if (!doc || Object.keys(doc).length === 0) continue
+
+              // Filter out fields if user made a specific selection
+              if (options.selectedFields) {
+                const filteredDoc = {}
+                const selectedSet = new Set(options.selectedFields)
+                for (const k of Object.keys(doc)) {
+                  if (selectedSet.has(k)) {
+                    filteredDoc[k] = doc[k]
+                  }
+                }
+                doc = filteredDoc
+              }
 
             if (Object.keys(doc).length === 0) continue
 
@@ -1028,8 +1072,12 @@ export function initDbHandlers() {
           }
         }
 
-        if (batch.length > 0) {
-          await flushBatch()
+          if (batch.length > 0) {
+            await flushBatch()
+          }
+        } catch (e) {
+          console.error('[Import] Pipeline/Iteration error:', e)
+          throw e
         }
 
         reportProgress(true)
@@ -1181,41 +1229,65 @@ export function initDbHandlers() {
       }
 
       let iterator
-      if (format === 'csv') {
-        iterator = inputStream.pipe(csvParser())
-      } else if (format === 'jsonl') {
-        const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
-        iterator = rl
-      } else if (format === 'json') {
-        iterator = inputStream.pipe(streamJson.parser()).pipe(StreamArray.streamArray())
+      try {
+        if (format === 'csv') {
+          iterator = inputStream.pipe(csvParser())
+        } else if (format === 'jsonl') {
+          const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity })
+          iterator = rl
+        } else if (format === 'json') {
+          const parser = streamJson.parser()
+          iterator = inputStream.pipe(parser).pipe(StreamArray.streamArray())
+          
+          parser.on('error', (err) => {
+            console.error('[Preview] JSON Parser Error:', err.message)
+          })
+        }
+
+        inputStream.on('error', (err) => {
+          console.error('[Preview] Input Stream Error:', err.message)
+        })
+
+        if (iterator && typeof iterator.on === 'function') {
+          iterator.on('error', (err) => {
+            console.error('[Preview] Iterator Error:', err.message)
+          })
+        }
+      } catch (e) {
+        console.error('[Preview] Pipeline creation error:', e)
+        return { ok: false, error: e.message }
       }
 
       const previewDocs = []
       
-      for await (const chunk of iterator) {
-        let doc
-        try {
-          if (format === 'json') {
-            doc = EJSON.deserialize(chunk.value)
-          } else if (format === 'jsonl') {
-            let line = chunk.trim()
-            if (!line) continue
-            if (line.endsWith(',')) line = line.slice(0, -1)
-            doc = EJSON.parse(line)
-          } else {
-            doc = EJSON.deserialize(chunk)
-          }
+      try {
+        for await (const chunk of iterator) {
+          let doc
+          try {
+            if (format === 'json') {
+              doc = EJSON.deserialize(chunk.value)
+            } else if (format === 'jsonl') {
+              let line = chunk.trim()
+              if (!line) continue
+              if (line.endsWith(',')) line = line.slice(0, -1)
+              doc = EJSON.parse(line)
+            } else {
+              doc = EJSON.deserialize(chunk)
+            }
 
-          if (!doc || Object.keys(doc).length === 0) continue
+            if (!doc || Object.keys(doc).length === 0) continue
 
-          previewDocs.push(doc)
-          if (previewDocs.length >= 5) {
-            break // We only need 5 docs for preview
+            previewDocs.push(doc)
+            if (previewDocs.length >= 5) {
+              break // We only need 5 docs for preview
+            }
+          } catch (e) {
+            // Ignore parsing errors for preview chunks
+            console.error('[Preview] Chunk error:', e.message)
           }
-        } catch (e) {
-          // Ignore parsing errors for preview chunks
-          console.error('[Preview] Chunk error:', e.message)
         }
+      } catch (e) {
+        console.error('[Preview] Main iteration error:', e.message)
       }
 
       // Clean up stream to avoid locking files since we break early

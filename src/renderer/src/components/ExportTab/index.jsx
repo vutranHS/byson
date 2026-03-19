@@ -72,12 +72,16 @@ const ExportTab = ({ tab }) => {
   }
 
   const handleBrowse = async () => {
-    const defaultName = `${collectionName}_export.${format === 'csv' ? 'csv' : 'json'}`
+    let ext = 'json'
+    if (format === 'csv') ext = 'csv'
+    else if (format === 'jsonl') ext = 'jsonl'
+    
+    const defaultName = `${collectionName}_export.${ext}`
     const path = await window.electron.ipcRenderer.invoke('shell:saveFile', {
       title: 'Save Export File',
       defaultPath: defaultName,
       filters: [
-        { name: format === 'csv' ? 'CSV Files' : 'JSON Files', extensions: [format === 'csv' ? 'csv' : 'json'] }
+        { name: format === 'csv' ? 'CSV Files' : (format === 'jsonl' ? 'JSON Lines' : 'JSON Files'), extensions: [ext] }
       ]
     })
     if (path) setFilePath(path)
