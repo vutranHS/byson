@@ -5,6 +5,25 @@ import icon from '../../resources/icon.png?asset'
 import { initStorageHandlers } from './storage'
 import { initDbHandlers } from './db'
 
+// Global Exception Handler to swallow benign network errors that might crash the app
+process.on('uncaughtException', (err) => {
+  const isNetworkOrSshError = (
+    err.code === 'ECONNRESET' || 
+    err.message.includes('Not connected') ||
+    err.message.includes('socket hang up') ||
+    err.message.includes('broken pipe')
+  )
+  
+  if (isNetworkOrSshError) {
+    console.warn('[Global Uncaught Muted]', err.code || 'NetworkError', err.message)
+    // Don't throw, let the reconnect logic handle it in the background
+    return
+  }
+  
+  // If it's a critical logic error, log it heavily
+  console.error('[Global Uncaught Exception]', err)
+})
+
 function createWindow() {
   // Create the browser window.
   const mainWindow = new BrowserWindow({

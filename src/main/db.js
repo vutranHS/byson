@@ -1,5 +1,6 @@
-import { ipcMain } from 'electron'
+import { ipcMain, net, BrowserWindow } from 'electron'
 import vm from 'vm'
+import dns from 'dns'
 import { MongoClient, ServerApiVersion, ObjectId } from 'mongodb'
 import { executeMongoshQuery } from './queryRunner'
 import { EJSON } from 'bson'
@@ -22,6 +23,11 @@ const activeClients = {}
 const reconnectingIds = new Set()
 // Store active export/import operations for cancellation
 const activeOperations = new Map()
+
+const broadcastStatus = (connId, status) => {
+  const wins = BrowserWindow.getAllWindows()
+  if (wins.length > 0) wins[0].webContents.send('db:status', { connId, status })
+}
 
 async function buildMongoUri(connConfig) {
   let uri = connConfig.connectionString || ''
@@ -346,6 +352,7 @@ export function initDbHandlers() {
 
       // Attach disconnect listeners for background auto-reconnect
       attachDisconnectListeners(connConfig.id)
+      broadcastStatus(connConfig.id, 'active')
 
       return { ok: true, databases: dbs, version }
     } catch (err) {
@@ -369,6 +376,18 @@ export function initDbHandlers() {
     }
   }
 
+  const checkIsOnline = () => {
+    return new Promise((resolve) => {
+      // Electron net.isOnline có thể bị lừa bởi card mạng ảo (Docker, VPN, VMWare)
+      if (!net.isOnline()) return resolve(false)
+      
+      // Ping DNS google để lấy status chuẩn tuyệt đối 100%
+      dns.resolve('google.com', (err) => {
+        resolve(!err)
+      })
+    })
+  }
+
   const triggerReconnect = async (connId) => {
     if (reconnectingIds.has(connId)) return
     const session = activeClients[connId]
@@ -378,14 +397,31 @@ export function initDbHandlers() {
     const RETRY_INTERVALS = [15000, 30000, 60000, 120000, 300000]
 
     console.warn(`[Auto-Reconnect] Background recovery started for ${connId}...`)
+    broadcastStatus(connId, 'reconnecting')
 
     // 1. Tear down dead instances
     if (session.client) await session.client.close(true).catch(() => {})
     if (session.tunnel) session.tunnel.close()
 
-    for (let i = 0; i < RETRY_INTERVALS.length; i++) {
-      const delay = RETRY_INTERVALS[i]
-      console.log(`[Auto-Reconnect] (BG) Attempt ${i + 1}/${RETRY_INTERVALS.length} in ${delay / 1000}s...`)
+    let attempt = 0
+    while (true) {
+      if (!activeClients[connId]) {
+        reconnectingIds.delete(connId)
+        return
+      }
+
+      // Check if network is offline to pause retries
+      const isReallyOnline = await checkIsOnline()
+      if (!isReallyOnline) {
+        broadcastStatus(connId, 'offline')
+        console.log(`[Auto-Reconnect] Network is offline. Sleeping 5s...`)
+        await new Promise((resolve) => setTimeout(resolve, 5000))
+        continue
+      }
+
+      broadcastStatus(connId, 'reconnecting')
+      const delay = RETRY_INTERVALS[Math.min(attempt, RETRY_INTERVALS.length - 1)]
+      console.log(`[Auto-Reconnect] (BG) Attempt ${attempt + 1} in ${delay / 1000}s...`)
       
       await new Promise((resolve) => setTimeout(resolve, delay))
 
@@ -408,15 +444,13 @@ export function initDbHandlers() {
         attachDisconnectListeners(connId)
         console.log(`[Auto-Reconnect] (BG) Successfully restored connection for ${connId}.`)
         reconnectingIds.delete(connId)
+        broadcastStatus(connId, 'active')
         return
       } catch (err) {
-        console.error(`[Auto-Reconnect] (BG) Attempt ${i + 1} failed: ${err.message}`)
+        attempt++
+        console.error(`[Auto-Reconnect] (BG) Attempt ${attempt} failed: ${err.message}`)
       }
     }
-
-    console.error(`[Auto-Reconnect] (BG) All attempts failed. Connection ${connId} is now dead.`)
-    delete activeClients[connId]
-    reconnectingIds.delete(connId)
   }
 
   const getSession = (connId) => {
@@ -433,6 +467,13 @@ export function initDbHandlers() {
   const withRetry = async (connId, action) => {
     const session = getSession(connId)
     const RETRY_INTERVALS = [15000, 30000, 60000, 120000, 300000] // 15s, 30s, 1m, 2m, 5m
+
+    // Bắt lỗi tức thì nếu vừa rớt mạng mà user lại bấm Run ngay (SSH chưa kịp timeout)
+    const isReallyOnline = await checkIsOnline()
+    if (!isReallyOnline) {
+      if (!reconnectingIds.has(connId)) triggerReconnect(connId)
+      throw new Error('Network connection is lost. Reconnecting in background. Please click Run again later.')
+    }
 
     try {
       return await action(session.client)
@@ -452,63 +493,22 @@ export function initDbHandlers() {
           throw err
         }
 
-        // If background reconnect is already running, wait for it instead of starting a new one
-        if (reconnectingIds.has(connId)) {
-          console.log(`[Auto-Reconnect] Query waiting for background recovery...`)
-          // Poll every 2s to see if it's done or failed
-          for (let p = 0; p < 30; p++) {
-            await new Promise((r) => setTimeout(r, 2000))
-            if (!reconnectingIds.has(connId)) {
-               if (activeClients[connId]?.client) return await action(activeClients[connId].client)
-               break
-            }
-          }
+        // If background reconnect is not running, start it
+        if (!reconnectingIds.has(connId)) {
+          triggerReconnect(connId)
         }
 
-        console.warn(`[Auto-Reconnect] Connection lost for ${connId} during query. Starting recovery...`)
-        
-        // 1. Tear down dead instances immediately
-        if (session.client) await session.client.close(true).catch(() => {})
-        if (session.tunnel) session.tunnel.close()
-        
-        // Notify UI that we are reconnecting (by removing from activeClients temporarily or setting a flag)
-        // For simplicity, we keep the entry but mark it as reconnecting if we had a state for it.
-        // The current UI relies on isActive = !!activeConnections[conn.id].
-        
-        let lastError = err
-        for (let i = 0; i < RETRY_INTERVALS.length; i++) {
-          const delay = RETRY_INTERVALS[i]
-          console.log(`[Auto-Reconnect] Attempt ${i + 1}/${RETRY_INTERVALS.length} in ${delay / 1000}s...`)
-          
-          await new Promise(resolve => setTimeout(resolve, delay))
-          
-          if (!activeClients[connId]) {
-            console.log(`[Auto-Reconnect] Reconnection aborted for ${connId} (disconnected manually).`)
-            throw lastError
+        console.log(`[Auto-Reconnect] Query waiting for background recovery (max 60s)...`)
+        // Poll every 2s to see if it's done or failed
+        for (let p = 0; p < 30; p++) {
+          await new Promise((r) => setTimeout(r, 2000))
+          if (!reconnectingIds.has(connId) && activeClients[connId]?.client) {
+             return await action(activeClients[connId].client)
           }
-
-          try {
-            console.log(`[Auto-Reconnect] Rebuilding connection ${connId}...`)
-            const rebuilt = await buildMongoClient(session.config)
-            await rebuilt.client.connect()
-            attachAPMListeners(rebuilt.client, connId)
-
-            activeClients[connId] = {
-              ...session,
-              client: rebuilt.client,
-              tunnel: rebuilt.tunnel
-            }
-
-            console.log(`[Auto-Reconnect] Successfully restored connection for ${connId} after ${i + 1} attempts.`)
-            return await action(rebuilt.client)
-          } catch (reconnectErr) {
-            lastError = reconnectErr
-            console.error(`[Auto-Reconnect] Attempt ${i + 1} failed:`, reconnectErr.message)
-          }
+          if (!activeClients[connId]) throw new Error('Connection closed manually.')
         }
 
-        console.error(`[Auto-Reconnect] All ${RETRY_INTERVALS.length} attempts failed for ${connId}.`)
-        throw new Error(`Connection lost and all retry attempts failed: ${lastError.message}`)
+        throw new Error('Network connection is unstable. Reconnection is continuing in the background, please click Run again later.')
       }
       throw err
     }

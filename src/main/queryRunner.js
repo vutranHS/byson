@@ -20,6 +20,9 @@ export async function executeMongoshQuery(client, dbName, queryString, options =
 
       const parsedSkip = parseInt(options.skip, 10)
       this._skip = isNaN(parsedSkip) || parsedSkip < 0 ? 0 : parsedSkip
+      
+      this._explicitToArray = false
+      this._explicitLimit = false
     }
 
     sort(s) {
@@ -28,6 +31,7 @@ export async function executeMongoshQuery(client, dbName, queryString, options =
     }
     limit(l) {
       this._limit = l
+      this._explicitLimit = true
       return this
     }
     skip(s) {
@@ -47,6 +51,7 @@ export async function executeMongoshQuery(client, dbName, queryString, options =
       return this
     }
     toArray() {
+      this._explicitToArray = true
       return this
     }
     
@@ -90,7 +95,6 @@ export async function executeMongoshQuery(client, dbName, queryString, options =
       if (this._sort) cursor = cursor.sort(this._sort)
       if (this._skip) cursor = cursor.skip(this._skip)
       if (this._hint) cursor = cursor.hint(this._hint)
-      
       // Enforce absolute max limit of 1000 to prevent V8 OOM
       let finalLimit = this._limit
       if (finalLimit === undefined || finalLimit === null || finalLimit <= 0 || finalLimit > 1000) {

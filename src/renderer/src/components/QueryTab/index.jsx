@@ -392,6 +392,14 @@ export default function QueryTab({ tab }) {
           </div>
         </div>
 
+        {/* Warning Banner */}
+        {tab.warning && !tab.loading && !tab.error && (
+          <div className="bg-yellow-500/10 border-b border-yellow-500/20 px-3 py-1.5 flex items-center gap-2 text-xs text-yellow-400 shrink-0">
+            <span className="shrink-0">⚠️</span>
+            <span className="font-medium">{tab.warning}</span>
+          </div>
+        )}
+
         {/* Results Content */}
         <div className="flex-1 text-sm overflow-hidden h-full flex flex-col relative w-full">
           {tab.loading ? (

@@ -23,6 +23,7 @@ import {
   TerminalSquare,
   Activity,
   X,
+  Settings,
   Download,
   Upload,
   Archive
@@ -30,9 +31,11 @@ import {
 import ExportTab from './components/ExportTab'
 import ImportTab from './components/ImportTab'
 import BsonTab from './components/BsonTab'
+import SettingsModal from './components/SettingsModal'
 
 function App() {
   const [showManager, setShowManager] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [logTab, setLogTab] = useState('output') // 'output' or 'profiler'
   const [sidebarMenu, setSidebarMenu] = useState(null)
@@ -52,6 +55,7 @@ function App() {
   const {
     connections,
     activeConnections,
+    connectionStatuses,
     expandedNodes,
     dbCollections,
     toggleNode,
@@ -61,6 +65,14 @@ function App() {
 
   useEffect(() => {
     loadConnections()
+  }, [])
+
+  // Listen for connection status changes from IPC
+  useEffect(() => {
+    const unsubscribe = window.electron.ipcRenderer.on('db:status', (e, { connId, status }) => {
+      useConnectionStore.getState().setStatus(connId, status)
+    })
+    return () => unsubscribe()
   }, [])
 
   const { tabs, activeTabId, openTab, closeTab, setActiveTab } = useTabStore()
@@ -352,6 +364,16 @@ function App() {
               </div>
             )}
           </div>
+
+          {/* Sidebar Footer */}
+          <div className="border-t border-border p-2 mt-auto shrink-0 bg-bg-secondary">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="w-full flex items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:bg-bg-tertiary hover:text-white py-1.5 rounded transition-colors"
+            >
+              <Settings size={14} /> Global Settings
+            </button>
+          </div>
         </aside>
 
         {/* Workspace (Right) */}
@@ -379,30 +401,43 @@ function App() {
                 <>
                   {/* Tabs Header */}
                   <div className="flex bg-bg-tertiary border-b border-border overflow-x-auto min-h-[36px]">
-                    {tabs.map((tab) => (
-                      <div
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center gap-2 px-3 py-1.5 min-w-[120px] max-w-[200px] border-r border-border cursor-pointer select-none text-xs font-medium transition-colors ${
-                          activeTabId === tab.id
-                            ? 'bg-bg-primary text-text-primary border-t border-t-accent'
-                            : 'bg-bg-tertiary text-text-secondary hover:bg-bg-secondary'
-                        }`}
-                      >
-                        <span className="truncate flex-1" title={tab.title}>
-                          {tab.title}
-                        </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            closeTab(tab.id)
-                          }}
-                          className="opacity-50 hover:opacity-100 hover:text-red-400 focus:outline-none px-1"
+                    {tabs.map((tab) => {
+                      const tabStatus = connectionStatuses[tab.connId] || 'active'
+                      return (
+                        <div
+                          key={tab.id}
+                          onClick={() => setActiveTab(tab.id)}
+                          className={`flex items-center gap-2 px-3 py-1.5 min-w-[120px] max-w-[200px] border-r border-border cursor-pointer select-none text-xs font-medium transition-colors ${
+                            activeTabId === tab.id
+                              ? 'bg-bg-primary text-text-primary border-t border-t-accent'
+                              : 'bg-bg-tertiary text-text-secondary hover:bg-bg-secondary'
+                          }`}
                         >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
+                          {tab.connId && (
+                            <div 
+                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                tabStatus === 'active' ? 'bg-green-500' :
+                                tabStatus === 'reconnecting' ? 'bg-yellow-500 animate-pulse' :
+                                'bg-gray-500'
+                              }`} 
+                              title={`Connection Status: ${tabStatus === 'active' ? 'Online/Connected' : tabStatus === 'reconnecting' ? 'Reconnecting in background...' : 'Offline/Network dropped'}`}
+                            />
+                          )}
+                          <span className="truncate flex-1" title={tab.title}>
+                            {tab.title}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              closeTab(tab.id)
+                            }}
+                            className="opacity-50 hover:opacity-100 hover:text-red-400 focus:outline-none px-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )
+                    })}
                   </div>
 
                   {/* Tab Content */}
@@ -851,6 +886,9 @@ function App() {
           onCancel={() => setInputDialog(null)}
         />
       )}
+
+      {/* Settings Modal */}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   )
 }

@@ -7,6 +7,9 @@ export const useConnectionStore = create((set, get) => ({
   // connectionId -> { databases: ['sys', 'local'] }
   activeConnections: {},
 
+  // connectionId -> 'active' | 'reconnecting' | 'offline'
+  connectionStatuses: {},
+
   // nodeId -> bool
   // nodeIds can be: `conn_${id}` or `db_${id}_${dbName}`
   expandedNodes: {},
@@ -16,6 +19,12 @@ export const useConnectionStore = create((set, get) => ({
 
   connecting: false,
   error: null,
+
+  setStatus: (connId, status) => {
+    set((state) => ({
+      connectionStatuses: { ...state.connectionStatuses, [connId]: status }
+    }))
+  },
 
   // Load connections from JSON file via IPC
   loadConnections: async () => {

@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { useConnectionStore } from './connectionStore'
 import { useLogStore } from './logStore'
 
+import { useSettingsStore } from './settingsStore'
+
 export const useTabStore = create((set, get) => ({
   tabs: [],
   activeTabId: null,
@@ -20,6 +22,8 @@ export const useTabStore = create((set, get) => ({
         ? `db.getCollection('${tabInfo.collectionName}').find({})`
         : `// New Shell`
 
+    const defaultPageSize = useSettingsStore.getState().defaultPageSize || 50
+
     const newTab = {
       id: newId,
       title: tabInfo.title || 'New Tab',
@@ -31,7 +35,7 @@ export const useTabStore = create((set, get) => ({
       results: null,
       viewMode: 'tree',
       skip: 0,
-      limit: 50,
+      limit: defaultPageSize,
       ...tabInfo
     }
 
@@ -128,7 +132,8 @@ export const useTabStore = create((set, get) => ({
                   loading: false,
                   results: result.data,
                   totalCount: result.totalCount !== undefined ? result.totalCount : t.totalCount,
-                  execTime: result.execTime
+                  execTime: result.execTime,
+                  warning: result.warning
                 }
               : t
           )
@@ -137,7 +142,7 @@ export const useTabStore = create((set, get) => ({
         useLogStore.getState().addLog(`Query error: ${result.error}`, 'error')
         set({
           tabs: get().tabs.map((t) =>
-            t.id === id ? { ...t, loading: false, error: result.error } : t
+            t.id === id ? { ...t, loading: false, error: result.error, warning: null } : t
           )
         })
       }

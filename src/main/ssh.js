@@ -20,32 +20,38 @@ export async function createSSHTunnel(sshConfig, targetHost, targetPort) {
       // Open an anonymous local TCP server on a random port
       const server = net.createServer((socket) => {
         console.log(`[SSH] Local connection received, forwarding to ${targetHost}:${targetPort}`)
-        sshClient.forwardOut(
-          '127.0.0.1',
-          socket.remotePort,
-          normalizedTargetHost,
-          targetPort,
-          (err, stream) => {
-            if (err) {
-              console.error('[SSH] Forward Error:', err.message)
-              socket.end()
-              return
+
+        // [FIX] Handle errors immediately before anything else happens to catch ECONNRESET
+        socket.on('error', (err) => {
+          console.warn(`[SSH] Local socket error (${err.code}): ${err.message}`)
+        })
+
+        try {
+          sshClient.forwardOut(
+            '127.0.0.1',
+            socket.remotePort,
+            normalizedTargetHost,
+            targetPort,
+            (err, stream) => {
+              if (err) {
+                console.error('[SSH] Forward Error:', err.message)
+                socket.end()
+                return
+              }
+
+              stream.on('error', (err) => {
+                console.warn(`[SSH] SSH stream error (${err.code}): ${err.message}`)
+                socket.end()
+              })
+
+              socket.pipe(stream).pipe(socket)
             }
-
-            // [FIX] Handle errors on both sides of the pipe to prevent unhandled ECONNRESET popups on Windows
-            socket.on('error', (err) => {
-              console.warn(`[SSH] Local socket error (${err.code}): ${err.message}`)
-              stream.end()
-            })
-
-            stream.on('error', (err) => {
-              console.warn(`[SSH] SSH stream error (${err.code}): ${err.message}`)
-              socket.end()
-            })
-
-            socket.pipe(stream).pipe(socket)
-          }
-        )
+          )
+        } catch (err) {
+          // [FIX] ssh2 throws 'Not connected' synchronously if the client is already closing
+          console.warn(`[SSH] Exception during forwardOut: ${err.message}`)
+          socket.end()
+        }
       })
 
       server.listen(0, '127.0.0.1', () => {
