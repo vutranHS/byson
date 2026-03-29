@@ -12,10 +12,12 @@ import {
   FileJson,
   Database,
   GripHorizontal,
-  Download
+  Download,
+  History
 } from 'lucide-react'
 import JsonTableView from './JsonTableView'
 import JsonTreeView from './JsonTreeView'
+import HistoryModal from '../HistoryModal'
 import Editor, { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 
@@ -50,6 +52,7 @@ export default function QueryTab({ tab }) {
   }
 
   const [editorHeight, setEditorHeight] = useState(DEFAULT_EDITOR_HEIGHT)
+  const [showHistory, setShowHistory] = useState(false)
   const containerRef = useRef(null)
   const editorRef = useRef(null)
 
@@ -247,6 +250,14 @@ export default function QueryTab({ tab }) {
             className="bg-bg-tertiary border border-border hover:bg-bg-hover text-text-primary text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition-colors"
           >
             <Download size={12} className="text-accent" /> Export Query
+          </button>
+
+          <button
+            onClick={() => setShowHistory(true)}
+            title="View query history"
+            className="bg-bg-tertiary border border-border hover:bg-bg-hover text-text-primary text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition-colors"
+          >
+            <History size={12} className="text-accent" /> History
           </button>
 
           <button
@@ -451,6 +462,14 @@ export default function QueryTab({ tab }) {
           )}
         </div>
       </div>
+      {/* Modals */}
+      {showHistory && (
+        <HistoryModal 
+          onClose={() => setShowHistory(false)}
+          activeDbName={tab.dbName}
+          activeConnId={tab.connId}
+        />
+      )}
     </div>
   )
 }

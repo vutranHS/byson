@@ -3,9 +3,10 @@ import { X, Settings as SettingsIcon, Save } from 'lucide-react'
 import { useSettingsStore } from '../../store/settingsStore'
 
 export default function SettingsModal({ onClose }) {
-  const { defaultPageSize, setDefaultPageSize } = useSettingsStore()
+  const { defaultPageSize, setDefaultPageSize, autoSaveHistory, setAutoSaveHistory } = useSettingsStore()
   
   const [pageSize, setPageSize] = useState(defaultPageSize || 50)
+  const [saveHistory, setSaveHistory] = useState(autoSaveHistory !== false)
 
   // Escape key to close
   useEffect(() => {
@@ -17,11 +18,9 @@ export default function SettingsModal({ onClose }) {
   }, [onClose])
 
   const handleSave = () => {
-    let parsed = parseInt(pageSize, 10)
-    if (isNaN(parsed) || parsed < 1) parsed = 50
-    if (parsed > 1000) parsed = 1000 // reasonable upper bound for default page size
-    
+    const parsed = Math.max(1, Math.min(1000, parseInt(pageSize, 10) || 50))
     setDefaultPageSize(parsed)
+    setAutoSaveHistory(saveHistory)
     onClose()
   }
 
@@ -65,8 +64,28 @@ export default function SettingsModal({ onClose }) {
                 autoFocus
               />
             </div>
+
+            {/* Auto-Save Query History */}
+            <div className="pt-3 border-t border-border">
+              <label className="flex items-center justify-between cursor-pointer">
+                <div>
+                  <div className="text-sm font-medium text-text-primary">Auto-Save Query History</div>
+                  <div className="text-xs text-text-secondary mt-0.5">Silently record executed queries to the History Store (stores up to 500 recent queries natively).</div>
+                </div>
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={saveHistory}
+                    onChange={() => setSaveHistory(!saveHistory)}
+                  />
+                  <div className={`w-10 h-6 bg-bg-tertiary rounded-full shadow-inner border border-border transition-colors ${saveHistory ? 'bg-accent/20 border-accent/50' : ''}`}></div>
+                  <div className={`absolute top-1 left-1 bg-text-secondary w-4 h-4 rounded-full transition-transform ${saveHistory ? 'transform translate-x-4 bg-accent' : ''}`}></div>
+                </div>
+              </label>
+            </div>
             
-            <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-500">
+            <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-500 mt-2">
                Note: Setting a very high page size may cause lag when rendering large collections. The system enforces a strict maximum of 1,000 documents per query batch over IPC.
             </div>
           </div>

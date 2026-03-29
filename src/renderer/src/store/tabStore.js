@@ -4,6 +4,7 @@ import { useLogStore } from './logStore'
 
 import { useSettingsStore } from './settingsStore'
 import { useWorkspaceStore } from './workspaceStore'
+import { useHistoryStore } from './historyStore'
 
 export const useTabStore = create((set, get) => ({
   tabs: [],
@@ -49,7 +50,7 @@ export const useTabStore = create((set, get) => ({
     if (tabInfo.collectionName) {
       if (tabInfo.type === 'indexes') {
         useConnectionStore.getState().refreshIndexes(tabInfo.connId, tabInfo.dbName, tabInfo.collectionName)
-      } else if (tabInfo.type !== 'export' && tabInfo.type !== 'import') {
+      } else if (tabInfo.type !== 'export' && tabInfo.type !== 'import' && !tabInfo.skipAutoRun) {
         // Don't auto-run for export/import tabs as they have their own UI
         setTimeout(() => get().executeTabQuery(newId), 50)
       }
@@ -174,6 +175,17 @@ export const useTabStore = create((set, get) => ({
         useConnectionStore.getState().connections.find((c) => c.id === connId)?.name || 'Unknown'
 
       useLogStore.getState().addLog(`Executing query in ${connName}/${tab.dbName}...`)
+
+      // Intercept and save to history
+      if (useSettingsStore.getState().autoSaveHistory && tab.query && tab.query.trim()) {
+        useHistoryStore.getState().addRecord({
+          connName,
+          connId,
+          dbName: tab.dbName,
+          collectionName: tab.collectionName || 'Unknown',
+          query: tab.query
+        })
+      }
 
       const result = await window.electron.ipcRenderer.invoke('db:runQuery', {
         connId,
