@@ -1,6 +1,6 @@
 {
   "name": "leafbase",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "A modern, cross-platform MongoDB GUI",
   "main": "./out/main/index.js",
   "author": "VuTran",
