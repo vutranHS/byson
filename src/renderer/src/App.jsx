@@ -26,20 +26,25 @@ import {
   Settings,
   Download,
   Upload,
-  Archive
+  Archive,
+  ArchiveRestore
 } from 'lucide-react'
 import ExportTab from './components/ExportTab'
 import ImportTab from './components/ImportTab'
 import BsonTab from './components/BsonTab'
 import SettingsModal from './components/SettingsModal'
+import WorkspacesModal from './components/WorkspacesModal'
 
 function App() {
   const [showManager, setShowManager] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showWorkspaces, setShowWorkspaces] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [logTab, setLogTab] = useState('output') // 'output' or 'profiler'
   const [sidebarMenu, setSidebarMenu] = useState(null)
+  const [tabContextMenu, setTabContextMenu] = useState(null)
   const sidebarMenuRef = useRef(null)
+  const tabContextMenuRef = useRef(null)
   const { logs, clearLogs } = useLogStore()
   const profilerLogs = useProfilerStore(state => state.logs)
   const isRecording = useProfilerStore(state => state.isRecording)
@@ -75,7 +80,17 @@ function App() {
     return () => unsubscribe()
   }, [])
 
-  const { tabs, activeTabId, openTab, closeTab, setActiveTab } = useTabStore()
+  const { 
+    tabs, 
+    activeTabId, 
+    openTab, 
+    closeTab, 
+    setActiveTab,
+    duplicateTab,
+    closeAllTabs,
+    closeOtherTabs,
+    closeTabsToTheRight
+  } = useTabStore()
 
   // Setup APM Profiler listener
   useEffect(() => {
@@ -85,11 +100,14 @@ function App() {
     return () => unsubscribe()
   }, [])
 
-  // Close sidebar context menu when clicking outside
+  // Close context menus when clicking outside
   useEffect(() => {
     const handleClick = (e) => {
       if (sidebarMenuRef.current && !sidebarMenuRef.current.contains(e.target)) {
         setSidebarMenu(null)
+      }
+      if (tabContextMenuRef.current && !tabContextMenuRef.current.contains(e.target)) {
+        setTabContextMenu(null)
       }
     }
     window.addEventListener('click', handleClick)
@@ -366,12 +384,18 @@ function App() {
           </div>
 
           {/* Sidebar Footer */}
-          <div className="border-t border-border p-2 mt-auto shrink-0 bg-bg-secondary">
+          <div className="border-t border-border p-2 mt-auto shrink-0 bg-bg-secondary flex gap-2">
+            <button
+              onClick={() => setShowWorkspaces(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-text-secondary hover:bg-bg-tertiary hover:text-white py-1.5 rounded transition-colors"
+            >
+              <ArchiveRestore size={14} /> Workspaces
+            </button>
             <button
               onClick={() => setShowSettings(true)}
-              className="w-full flex items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:bg-bg-tertiary hover:text-white py-1.5 rounded transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-text-secondary hover:bg-bg-tertiary hover:text-white py-1.5 rounded transition-colors border-l border-border/50"
             >
-              <Settings size={14} /> Global Settings
+              <Settings size={14} /> Settings
             </button>
           </div>
         </aside>
@@ -379,16 +403,25 @@ function App() {
         {/* Workspace (Right) */}
         <main className="flex-1 flex flex-col min-w-0 bg-bg-primary relative">
           {!tabs || tabs.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex-1 flex flex-col items-center justify-center">
               <div className="text-center">
                 <div className="text-4xl mb-4 opacity-20">🍃</div>
                 <p className="text-text-secondary">Double click a collection to open query tab</p>
-                <button
-                  onClick={() => setShowManager(true)}
-                  className="mt-4 px-4 py-2 bg-accent text-white rounded cursor-pointer hover:bg-accent-hover transition-colors text-sm"
-                >
-                  Manage Connections ({connections.length})
-                </button>
+                <div className="flex justify-center gap-3 mt-5">
+                  <button
+                    onClick={() => setShowWorkspaces(true)}
+                    className="px-4 py-2 bg-bg-tertiary border border-border text-text-primary rounded cursor-pointer hover:bg-bg-secondary transition-colors text-sm font-medium flex items-center gap-2"
+                  >
+                    <ArchiveRestore size={16} className="text-accent" />
+                    Workspaces
+                  </button>
+                  <button
+                    onClick={() => setShowManager(true)}
+                    className="px-4 py-2 bg-accent text-white rounded cursor-pointer hover:bg-accent-hover transition-colors text-sm font-medium"
+                  >
+                    Manage Connections ({connections.length})
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -407,6 +440,15 @@ function App() {
                         <div
                           key={tab.id}
                           onClick={() => setActiveTab(tab.id)}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setTabContextMenu({
+                              tabId: tab.id,
+                              x: e.clientX,
+                              y: e.clientY
+                            })
+                          }}
                           className={`flex items-center gap-2 px-3 py-1.5 min-w-[120px] max-w-[200px] border-r border-border cursor-pointer select-none text-xs font-medium transition-colors ${
                             activeTabId === tab.id
                               ? 'bg-bg-primary text-text-primary border-t border-t-accent'
@@ -887,8 +929,62 @@ function App() {
         />
       )}
 
+      {/* Tab Context Menu */}
+      {tabContextMenu && (
+        <div 
+          ref={tabContextMenuRef}
+          className="fixed z-50 bg-bg-secondary border border-border shadow-lg rounded-lg py-1.5 w-48 text-sm animate-in fade-in duration-100"
+          style={{ 
+            top: `${Math.min(tabContextMenu.y, window.innerHeight - 150)}px`, 
+            left: `${Math.min(tabContextMenu.x, window.innerWidth - 200)}px` 
+          }}
+        >
+          <button
+            className="w-full text-left px-4 py-1.5 text-text-primary hover:bg-bg-tertiary hover:text-white transition-colors"
+            onClick={() => {
+              duplicateTab(tabContextMenu.tabId)
+              setTabContextMenu(null)
+            }}
+          >
+            Duplicate Tab
+          </button>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-4 py-1.5 text-text-primary hover:bg-bg-tertiary hover:text-white transition-colors"
+            onClick={() => {
+              closeOtherTabs(tabContextMenu.tabId)
+              setTabContextMenu(null)
+            }}
+          >
+            Close Other Tabs
+          </button>
+          <button
+            className="w-full text-left px-4 py-1.5 text-text-primary hover:bg-bg-tertiary hover:text-white transition-colors"
+            onClick={() => {
+              closeTabsToTheRight(tabContextMenu.tabId)
+              setTabContextMenu(null)
+            }}
+          >
+            Close Tabs to Right
+          </button>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary text-red-400 hover:text-red-300 transition-colors"
+            onClick={() => {
+              closeAllTabs()
+              setTabContextMenu(null)
+            }}
+          >
+            Close All Tabs
+          </button>
+        </div>
+      )}
+
       {/* Settings Modal */}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+
+      {/* Workspaces Modal */}
+      {showWorkspaces && <WorkspacesModal onClose={() => setShowWorkspaces(false)} />}
     </div>
   )
 }

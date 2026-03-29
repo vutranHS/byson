@@ -453,9 +453,28 @@ export function initDbHandlers() {
     }
   }
 
-  const getSession = (connId) => {
-    const session = activeClients[connId]
-    if (!session || !session.client) throw new Error('Not connected')
+  const getSession = async (connId) => {
+    let session = activeClients[connId]
+    if (!session || !session.client) {
+      const config = getConnectionById(connId)
+      if (!config) throw new Error(`Connection ${connId} not found in storage. It may have been deleted.`)
+      
+      console.log(`[LazyConnect] Attempting implicit connection for ${connId}`)
+      broadcastStatus(connId, 'reconnecting')
+      try {
+        const { client, tunnel } = await buildMongoClient(config)
+        await client.connect()
+        attachAPMListeners(client, connId)
+        
+        activeClients[connId] = { client, config, tunnel }
+        attachDisconnectListeners(connId)
+        broadcastStatus(connId, 'active')
+        session = activeClients[connId]
+      } catch (e) {
+        broadcastStatus(connId, 'error')
+        throw new Error('Lazy connection failed: ' + e.message)
+      }
+    }
     return session
   }
 
@@ -465,7 +484,7 @@ export function initDbHandlers() {
    * rebuild the whole stack (SSH + Mongo) and retry once.
    */
   const withRetry = async (connId, action) => {
-    const session = getSession(connId)
+    const session = await getSession(connId)
     const RETRY_INTERVALS = [15000, 30000, 60000, 120000, 300000] // 15s, 30s, 1m, 2m, 5m
 
     // Bắt lỗi tức thì nếu vừa rớt mạng mà user lại bấm Run ngay (SSH chưa kịp timeout)

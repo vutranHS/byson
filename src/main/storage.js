@@ -34,6 +34,24 @@ function initStorageHandlers() {
       throw err
     }
   })
+
+  ipcMain.handle('fs:writeFile', async (_, { filePath, content }) => {
+    try {
+      writeFileSync(filePath, content, 'utf-8')
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('fs:readFile', async (_, filePath) => {
+    try {
+      const data = readFileSync(filePath, 'utf-8')
+      return { ok: true, data }
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
 }
 
 function getConnectionById(id) {
