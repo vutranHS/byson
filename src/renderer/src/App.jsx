@@ -74,10 +74,18 @@ function App() {
 
   // Listen for connection status changes from IPC
   useEffect(() => {
-    const unsubscribe = window.electron.ipcRenderer.on('db:status', (e, { connId, status }) => {
+    const unsubscribeStatus = window.electron.ipcRenderer.on('db:status', (e, { connId, status }) => {
       useConnectionStore.getState().setStatus(connId, status)
     })
-    return () => unsubscribe()
+    
+    const unsubscribeLazy = window.electron.ipcRenderer.on('db:lazyConnected', (e, { connId, databases, version }) => {
+      useConnectionStore.getState().setLazyConnection(connId, databases, version)
+    })
+    
+    return () => {
+      unsubscribeStatus()
+      unsubscribeLazy()
+    }
   }, [])
 
   const { 

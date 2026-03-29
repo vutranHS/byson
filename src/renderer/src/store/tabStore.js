@@ -184,6 +184,10 @@ export const useTabStore = create((set, get) => ({
 
       if (result.ok) {
         useLogStore.getState().addLog(`Query completed in ${result.execTime}ms`, 'success')
+        
+        // Ensure sidebar mirrors the active query
+        useConnectionStore.getState().expandToCollection(connId, tab.dbName)
+        
         set({
           tabs: get().tabs.map((t) =>
             t.id === id

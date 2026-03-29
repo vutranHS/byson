@@ -468,6 +468,24 @@ export function initDbHandlers() {
         
         activeClients[connId] = { client, config, tunnel }
         attachDisconnectListeners(connId)
+        
+        // Fetch DB info to sync the frontend tree on implicit login
+        try {
+          const adminDb = client.db('admin')
+          const adminInfo = await adminDb.admin().listDatabases()
+          const dbs = adminInfo.databases.map((db) => db.name).filter((n) => n !== 'local')
+          let version = 'unknown'
+          try {
+            const bInfo = await adminDb.admin().buildInfo()
+            version = bInfo.version
+          } catch (err) {}
+          
+          const wins = BrowserWindow.getAllWindows()
+          if (wins.length > 0) wins[0].webContents.send('db:lazyConnected', { connId, databases: dbs, version })
+        } catch (e) {
+          console.warn('[LazyConnect] Could not fetch DB list:', e.message)
+        }
+        
         broadcastStatus(connId, 'active')
         session = activeClients[connId]
       } catch (e) {

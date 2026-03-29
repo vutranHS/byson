@@ -26,6 +26,26 @@ export const useConnectionStore = create((set, get) => ({
     }))
   },
 
+  setLazyConnection: (connId, databases, version) => {
+    set((state) => ({
+      activeConnections: {
+        ...state.activeConnections,
+        [connId]: { databases: databases || [], version: version || 'unknown' }
+      }
+    }))
+  },
+
+  expandToCollection: (connId, dbName) => {
+    set((state) => ({
+      expandedNodes: {
+        ...state.expandedNodes,
+        [`conn_${connId}`]: true,
+        [`db_${connId}_${dbName}`]: true
+      }
+    }))
+    get().refreshCollections(connId, dbName)
+  },
+
   // Load connections from JSON file via IPC
   loadConnections: async () => {
     try {
