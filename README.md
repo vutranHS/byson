@@ -127,12 +127,21 @@ We are committed to fostering an open and welcoming environment.
 
 ## 🔐 Code Signing Policy
 
-Free code signing for Windows builds is provided by [SignPath Foundation](https://signpath.org),
-certificate by [SignPath.io](https://signpath.io).
+Free code signing provided by [SignPath.io](https://about.signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/).
 
-Only builds originating from the `main` branch of this repository are signed.
-Signing is performed automatically via GitHub Actions with **manual approver authorization** required before each release.
-The signing team is identical to the development and maintainer team of this repository.
+**Committer and reviewer:** vutranHS
+
+**Privacy policy:**
+
+This program will not transfer any information to other networked systems unless specifically requested by the user.
+The only outbound network connections are to MongoDB servers explicitly configured and initiated by the user.
+No telemetry, analytics, or usage data is collected or transmitted.
+
+**Build process:**
+
+The release is built and signed directly in the GitHub Actions workflow.
+The signed bundle is then downloaded for verification and testing before being uploaded to the release page and published.
 
 ---
 
