@@ -109,9 +109,11 @@ $ npm run build:linux
 
 ## 🗺️ Roadmap
 
-See our full roadmap and vote on upcoming features in [Issue #1](https://github.com/vutranHS/leafbase/issues/1).
+See our full roadmap and vote on upcoming features in [FEATURES_REQUEST.md](../FEATURES_REQUEST.md).
 
-Highlights coming soon: Export to JSON/BSON/CSV, Aggregation Pipeline Builder, Index Manager, Schema Analyzer.
+**Already shipped in v1.0.8:** Workspace Sessions, Global Query History, Tab IDE Menus, SSH Auto-Reconnect, Export/Import Engine (JSON/CSV/BSON/XLSX), Monaco Editor.
+
+**Coming soon:** Aggregation Pipeline Builder, Index Manager, Schema Analyzer, Query Explain Plan viewer.
 
 ## 🤝 Contributing
 
@@ -122,6 +124,17 @@ We welcome contributions from the community! Whether it's fixing a bug, adding a
 3. Submit a **Pull Request** using our professional template.
 
 We are committed to fostering an open and welcoming environment.
+
+## 🔐 Code Signing Policy
+
+Free code signing for Windows builds is provided by [SignPath Foundation](https://signpath.org),
+certificate by [SignPath.io](https://signpath.io).
+
+Only builds originating from the `main` branch of this repository are signed.
+Signing is performed automatically via GitHub Actions with **manual approver authorization** required before each release.
+The signing team is identical to the development and maintainer team of this repository.
+
+---
 
 ## 📄 License
 

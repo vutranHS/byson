@@ -4,7 +4,8 @@
   "description": "A modern, cross-platform MongoDB GUI",
   "main": "./out/main/index.js",
   "author": "VuTran",
-  "homepage": "https://electron-vite.org",
+  "license": "MIT",
+  "homepage": "https://github.com/vutranHS/leafbase",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
