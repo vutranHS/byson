@@ -31,8 +31,7 @@ mac:
       arch:
         - x64
         - arm64
-  notarize:
-    teamId: "${APPLE_TEAM_ID}"
+  notarize: true
 dmg:
   artifactName: ${name}-${version}-${arch}.${ext}
 linux:
