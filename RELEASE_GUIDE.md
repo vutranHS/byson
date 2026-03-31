@@ -2,10 +2,10 @@
 
 Since LeafBase is currently in its early stages and the builds are **unsigned**, your operating system might show a warning when you try to install or run it. Follow these simple steps to safely install LeafBase.
 
-## 🍎 macOS Installation
+## 🍎 macOS Installation (v1.0.9+ No longer required)
 
-> [!NOTE]
-> **Recommended**: From **version 1.0.9 onwards**, LeafBase is officially signed and notarized by Apple. You can now open the app directly after dragging it into your Applications folder.
+> [!TIP]
+> From **version 1.0.9 onwards**, the macOS version of LeafBase is officially **signed and notarized** by Apple. You can now open the app directly after dragging it into your Applications folder.
 
 ### Legacy Support (For versions < v1.0.9)
 If you are using an older version, your operating system might show a message saying: *"LeafBase cannot be opened because it is from an unidentified developer."*

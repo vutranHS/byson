@@ -74,7 +74,9 @@ Robo3T was the go-to MongoDB GUI for hundreds of thousands of developers — lig
 Ready-to-use binaries for Windows, macOS, and Linux are available on the **[Releases Page](https://github.com/vutranHS/leafbase/releases)**.
 
 > [!TIP]
-> **Version 1.0.9+** is officially **Digitally Signed** and **Notarized** by Apple. macOS users can now install and open LeafBase directly without any workarounds. For older versions, please refer to our **[Installation & Release Guide](RELEASE_GUIDE.md)**.
+> **macOS (v1.0.9+)** is now officially **Digitally Signed** and **Notarized** by Apple. macOS users can open LeafBase directly. 
+> 
+> **Windows builds** are currently pending approval from [SignPath.io](https://signpath.io/). Until then, Windows users may still see a SmartScreen warning. Please refer to our **[Installation & Release Guide](RELEASE_GUIDE.md)** for more details.
 
 ## 🚀 Getting Started
 
@@ -127,9 +129,10 @@ We are committed to fostering an open and welcoming environment.
 
 ## 🔐 Code Signing Policy
 
-Releases from **v1.0.9** onwards are officially signed using a **Verified Apple Developer Certificate**. 
+Free code signing provided by [SignPath.io](https://about.signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/).
 
-**Committer and reviewer:** vutranHS (@vutranHS)
+**Committer and reviewer:** vutranHS
 
 **Privacy policy:**
 
@@ -139,8 +142,9 @@ No telemetry, analytics, or usage data is collected or transmitted.
 
 **Build process:**
 
-The release is built and signed directly in the GitHub Actions workflow.
-The signed bundle is then downloaded for verification and testing before being uploaded to the release page and published.
+Releases from **v1.0.9** onwards include officially signed **macOS binaries** using a **Verified Apple Developer Certificate**. 
+
+**Windows code signing** is currently in the process of being integrated via [SignPath.io](https://about.signpath.io/).
 
 ---
 
