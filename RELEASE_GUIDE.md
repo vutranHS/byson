@@ -4,7 +4,11 @@ Since LeafBase is currently in its early stages and the builds are **unsigned**,
 
 ## 🍎 macOS Installation
 
-When you open the `.dmg` or the application, you may see a message saying: *"LeafBase cannot be opened because it is from an unidentified developer."*
+> [!NOTE]
+> **Recommended**: From **version 1.0.9 onwards**, LeafBase is officially signed and notarized by Apple. You can now open the app directly after dragging it into your Applications folder.
+
+### Legacy Support (For versions < v1.0.9)
+If you are using an older version, your operating system might show a message saying: *"LeafBase cannot be opened because it is from an unidentified developer."*
 
 1.  **Right-Click** (or Control-click) the LeafBase app icon in your Applications folder.
 2.  Choose **Open** from the top of the menu.

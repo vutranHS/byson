@@ -73,8 +73,8 @@ Robo3T was the go-to MongoDB GUI for hundreds of thousands of developers — lig
 
 Ready-to-use binaries for Windows, macOS, and Linux are available on the **[Releases Page](https://github.com/vutranHS/leafbase/releases)**.
 
-> [!IMPORTANT]
-> Since these builds are currently unsigned, please refer to our **[Installation & Release Guide](RELEASE_GUIDE.md)** for instructions on how to bypass system security warnings.
+> [!TIP]
+> **Version 1.0.9+** is officially **Digitally Signed** and **Notarized** by Apple. macOS users can now install and open LeafBase directly without any workarounds. For older versions, please refer to our **[Installation & Release Guide](RELEASE_GUIDE.md)**.
 
 ## 🚀 Getting Started
 
@@ -127,10 +127,9 @@ We are committed to fostering an open and welcoming environment.
 
 ## 🔐 Code Signing Policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/),
-certificate by [SignPath Foundation](https://signpath.org/).
+Releases from **v1.0.9** onwards are officially signed using a **Verified Apple Developer Certificate**. 
 
-**Committer and reviewer:** vutranHS
+**Committer and reviewer:** vutranHS (@vutranHS)
 
 **Privacy policy:**
 
