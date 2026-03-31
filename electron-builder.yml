@@ -18,18 +18,21 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
-  entitlementsInherit: build/entitlements.mac.plist
+  hardenedRuntime: true
+  gatekeeperAssess: false
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  entitlementsInherit: build/entitlements.mac.plist
   target:
     - target: dmg
       arch:
         - x64
         - arm64
-  notarize: false
+  notarize:
+    teamId: "${APPLE_TEAM_ID}"
 dmg:
   artifactName: ${name}-${version}-${arch}.${ext}
 linux:
