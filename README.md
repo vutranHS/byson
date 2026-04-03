@@ -127,26 +127,6 @@ We welcome contributions from the community! Whether it's fixing a bug, adding a
 
 We are committed to fostering an open and welcoming environment.
 
-## 🔐 Code Signing Policy
-
-Free code signing provided by [SignPath.io](https://about.signpath.io/),
-certificate by [SignPath Foundation](https://signpath.org/).
-
-**Committer and reviewer:** vutranHS
-
-**Privacy policy:**
-
-This program will not transfer any information to other networked systems unless specifically requested by the user.
-The only outbound network connections are to MongoDB servers explicitly configured and initiated by the user.
-No telemetry, analytics, or usage data is collected or transmitted.
-
-**Build process:**
-
-Releases from **v1.0.9** onwards include officially signed **macOS binaries** using a **Verified Apple Developer Certificate**. 
-
-**Windows code signing** is currently in the process of being integrated via [SignPath.io](https://about.signpath.io/).
-
----
 
 ## 📄 License
 
