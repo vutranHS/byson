@@ -127,7 +127,7 @@ const ExportTab = ({ tab }) => {
   }
 
   const handleBrowse = async () => {
-    let ext = format === 'xlsx' ? 'xlsx' : (format === 'csv' ? 'csv' : 'jsonl')
+    let ext = format
     if (useCompression && format !== 'xlsx') ext += '.gz'
     
     const defaultName = `${collectionName}_export.${ext}`

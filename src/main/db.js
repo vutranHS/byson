@@ -24,6 +24,14 @@ const reconnectingIds = new Set()
 // Store active export/import operations for cancellation
 const activeOperations = new Map()
 
+const mongoHelpers = {
+  ObjectId: (id) => new ObjectId(id),
+  ISODate: (d) => new Date(d),
+  Date: Date,
+  NumberInt: (n) => parseInt(n, 10),
+  NumberLong: (n) => parseInt(n, 10)
+}
+
 const broadcastStatus = (connId, status) => {
   const wins = BrowserWindow.getAllWindows()
   if (wins.length > 0) wins[0].webContents.send('db:status', { connId, status })
@@ -896,6 +904,7 @@ export function initDbHandlers() {
         console.log(`[Export] Executing raw query string for export...`)
         // Simple sandbox for extracting cursor
         const sandbox = {
+          ...mongoHelpers,
           db: {
             getCollection: (name) => db.collection(name),
             collection: (name) => db.collection(name)
@@ -988,7 +997,7 @@ export function initDbHandlers() {
               let transformed = doc
               if (transformScript) {
                 try {
-                  const sandbox = { doc }
+                  const sandbox = { ...mongoHelpers, doc }
                   vm.createContext(sandbox)
                   transformed = transformScript.runInContext(sandbox)
                   if (transformed === null || transformed === undefined) continue
@@ -1045,7 +1054,7 @@ export function initDbHandlers() {
           let currentDoc = doc
           if (transformScript) {
             try {
-              const sandbox = { doc }
+              const sandbox = { ...mongoHelpers, doc }
               vm.createContext(sandbox)
               const result = transformScript.runInContext(sandbox)
               if (result === null || result === undefined) {
@@ -1426,7 +1435,7 @@ export function initDbHandlers() {
               // Apply ETL if present
               if (transformScript) {
                 try {
-                  const sandbox = { doc }
+                  const sandbox = { ...mongoHelpers, doc }
                   vm.createContext(sandbox)
                   const result = transformScript.runInContext(sandbox)
                   if (result === null || result === undefined) {
@@ -1725,7 +1734,7 @@ export function initDbHandlers() {
             // Apply ETL if present
             if (transformScript) {
               try {
-                const sandbox = { doc }
+                const sandbox = { ...mongoHelpers, doc }
                 vm.createContext(sandbox)
                 const result = transformScript.runInContext(sandbox)
                 if (result === null || result === undefined) {
@@ -1783,6 +1792,7 @@ export function initDbHandlers() {
       if (queryString) {
         const vm = require('vm')
         const sandbox = {
+          ...mongoHelpers,
           db: {
             getCollection: (name) => db.collection(name),
             collection: (name) => db.collection(name)
@@ -1817,7 +1827,7 @@ export function initDbHandlers() {
       for (let doc of docs) {
         if (transformScript) {
           try {
-            const sandbox = { doc }
+            const sandbox = { ...mongoHelpers, doc }
             vm.createContext(sandbox)
             const result = transformScript.runInContext(sandbox)
             if (result === null || result === undefined) continue
