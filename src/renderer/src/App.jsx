@@ -9,6 +9,8 @@ import { useProfilerStore } from './store/profilerStore'
 import DatabaseStats from './components/Overlays/DatabaseStats'
 import OpsManager from './components/Overlays/OpsManager'
 import ServerInfo from './components/Overlays/ServerInfo'
+import { useWorkspaceStore } from './store/workspaceStore'
+import { useHistoryStore } from './store/historyStore'
 import {
   Server,
   Database,
@@ -70,6 +72,8 @@ function App() {
 
   useEffect(() => {
     loadConnections()
+    useWorkspaceStore.getState().initStore()
+    useHistoryStore.getState().initStore()
   }, [])
 
   // Listen for connection status changes from IPC

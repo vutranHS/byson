@@ -53,6 +53,10 @@ export const useConnectionStore = create((set, get) => ({
       set({ connections: data || [] })
       if (data && data.length > 0) {
         set({ selectedId: data[0].id })
+
+        // Auto-upgrade encryption: Save back to disk immediately 
+        // to ensure any legacy plaintext is overwritten with ciphertext
+        await get().saveConnections(data)
       }
     } catch (error) {
       console.error('Failed to load connections:', error)
