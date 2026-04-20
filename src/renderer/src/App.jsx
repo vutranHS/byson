@@ -35,6 +35,7 @@ import {
 import ExportTab from './components/ExportTab'
 import ImportTab from './components/ImportTab'
 import BsonTab from './components/BsonTab'
+import CloneTab from './components/CloneTab'
 import SettingsModal from './components/SettingsModal'
 import WorkspacesModal from './components/WorkspacesModal'
 
@@ -513,6 +514,7 @@ function App() {
                       if (tab.type === 'export') return <ExportTab key={tab.id} tab={tab} />
                       if (tab.type === 'import') return <ImportTab key={tab.id} tab={tab} />
                       if (tab.type === 'bson') return <BsonTab key={tab.id} tab={tab} />
+                      if (tab.type === 'sync') return <CloneTab key={tab.id} tab={tab} />
                       return <QueryTab key={tab.id} tab={tab} />
                     })}
                 </>
@@ -788,6 +790,22 @@ function App() {
                 <BarChart size={13} className="text-blue-400" /> Database Statistics
               </button>
               <div className="h-px bg-border my-1" />
+              <button
+                onClick={() => {
+                  openTab({
+                    title: `Clone DB: ${sidebarMenu.dbName}`,
+                    type: 'sync',
+                    connId: sidebarMenu.connId,
+                    dbName: sidebarMenu.dbName,
+                    collectionName: null // null indicates full database clone
+                  })
+                  setSidebarMenu(null)
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <RefreshCw size={13} className="text-blue-500" /> Clone Database...
+              </button>
+              <div className="h-px bg-border my-1" />
               <button 
                 onClick={() => {
                   setSidebarMenu(null)
@@ -883,6 +901,21 @@ function App() {
                 className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
               >
                 <Archive size={13} className="text-orange-400" /> BSON Backup / Restore...
+              </button>
+              <button
+                onClick={() => {
+                  openTab({
+                    title: `Clone: ${sidebarMenu.colName}`,
+                    type: 'sync',
+                    connId: sidebarMenu.connId,
+                    dbName: sidebarMenu.dbName,
+                    collectionName: sidebarMenu.colName
+                  })
+                  setSidebarMenu(null)
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <RefreshCw size={13} className="text-blue-500" /> Clone Collection...
               </button>
               <div className="h-px bg-border my-1" />
               <button

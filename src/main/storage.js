@@ -177,7 +177,7 @@ function getConnectionById(id) {
     if (!existsSync(filePath)) return null
     const data = readFileSync(filePath, 'utf-8')
     const connections = JSON.parse(data)
-    const conn = connections.find(c => c.id === id)
+    const conn = connections.find(c => String(c.id) === String(id))
     if (conn) {
       return {
         ...conn,

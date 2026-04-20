@@ -16,6 +16,7 @@ import path from 'path'
 import { Transform, Readable } from 'stream'
 import { checkBsonTools, downloadBsonTools } from './bsonTools'
 import { spawn } from 'child_process'
+import { runDriverSync, activeSyncOperations } from './syncRunner'
 
 // Store active connection instances (Mapping ConnectionId -> { client, tunnel })
 const activeClients = {}
@@ -184,7 +185,7 @@ async function buildMongoClient(connConfig) {
 
   const client = new MongoClient(uri, mongoOptions)
   await client.connect()
-  return { client, tunnel }
+  return { client, tunnel, uri }
 }
 
 /**
@@ -326,13 +327,13 @@ export function initDbHandlers() {
   handle('db:connect', async (_, connConfig) => {
     try {
       const built = await buildMongoClient(connConfig)
-      const { client, tunnel } = built
+      const { client, tunnel, uri } = built
       await client.connect()
       
       // Attach performance monitor
       attachAPMListeners(client, connConfig.id)
       // Store the connection config alongside the client instances for Auto-Reconnect
-      activeClients[connConfig.id] = { client, tunnel, config: connConfig }
+      activeClients[connConfig.id] = { client, tunnel, uri, config: connConfig }
 
       // Retrieve the default list of databases immediately after connection
       let dbs = []
@@ -446,7 +447,8 @@ export function initDbHandlers() {
         activeClients[connId] = {
           ...session,
           client: rebuilt.client,
-          tunnel: rebuilt.tunnel
+          tunnel: rebuilt.tunnel,
+          uri: rebuilt.uri
         }
 
         attachDisconnectListeners(connId)
@@ -470,11 +472,11 @@ export function initDbHandlers() {
       console.log(`[LazyConnect] Attempting implicit connection for ${connId}`)
       broadcastStatus(connId, 'reconnecting')
       try {
-        const { client, tunnel } = await buildMongoClient(config)
+        const { client, tunnel, uri } = await buildMongoClient(config)
         await client.connect()
         attachAPMListeners(client, connId)
         
-        activeClients[connId] = { client, config, tunnel }
+        activeClients[connId] = { client, config, tunnel, uri }
         attachDisconnectListeners(connId)
         
         // Fetch DB info to sync the frontend tree on implicit login
@@ -1862,4 +1864,93 @@ export function initDbHandlers() {
       if (previewClient) previewClient.close()
     }
   })
+
+  // Sync Management
+  ipcMain.handle('db:startSync', async (event, { operationId, sourceConnId, targetConnId, sourceDb, sourceCollection, targetDb, targetCollection, options }) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      
+      const sourceSession = await getSession(sourceConnId)
+      const targetSession = await getSession(targetConnId)
+      
+      if (!sourceSession || !sourceSession.client) throw new Error('Source connection initialization failed')
+      if (!targetSession || !targetSession.client) throw new Error('Target connection initialization failed')
+
+      const enrichedOptions = {
+        ...options,
+        sourceUri: sourceSession.uri,
+        targetUri: targetSession.uri
+      }
+
+      activeSyncOperations.set(operationId, { state: 'running', resumeId: null, options: enrichedOptions })
+
+      // Run in background (don't await returning to renderer immediately)
+      runDriverSync({
+        operationId,
+        sourceClient: sourceSession.client,
+        targetClient: targetSession.client,
+        sourceDbName: sourceDb,
+        sourceColName: sourceCollection,
+        targetDbName: targetDb,
+        targetColName: targetCollection,
+        options: enrichedOptions,
+        win
+      }).catch(e => console.error('[Sync Error]', e))
+
+      return { ok: true }
+    } catch (err) {
+      console.error('[Start Sync Error]', err)
+      return { ok: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('db:pauseSync', async (_, operationId) => {
+    const op = activeSyncOperations.get(operationId)
+    if (op && op.state === 'running') {
+      op.state = 'paused'
+      return { ok: true }
+    }
+    return { ok: false, error: 'Cannot pause inactive operation' }
+  })
+
+  ipcMain.handle('db:resumeSync', async (event, { operationId, sourceConnId, targetConnId, sourceDb, sourceCollection, targetDb, targetCollection }) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const op = activeSyncOperations.get(operationId)
+      if (!op) throw new Error('Operation context lost')
+      const sourceSession = await getSession(sourceConnId)
+      const targetSession = await getSession(targetConnId)
+      
+      if (!sourceSession || !sourceSession.client) throw new Error('Source connection initialization failed')
+      if (!targetSession || !targetSession.client) throw new Error('Target connection initialization failed')
+      
+      op.state = 'running'
+      
+      runDriverSync({
+        operationId,
+        sourceClient: sourceSession.client,
+        targetClient: targetSession.client,
+        sourceDbName: sourceDb,
+        sourceColName: sourceCollection,
+        targetDbName: targetDb,
+        targetColName: targetCollection,
+        options: { ...op.options, resumeId: op.resumeId, isResume: true, processedSoFar: op.processedSoFar || 0 },
+        win
+      }).catch(e => console.error('[Resume Sync Error]', e))
+
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('db:stopSync', async (_, operationId) => {
+    const op = activeSyncOperations.get(operationId)
+    if (op) {
+      op.state = 'stopped'
+      return { ok: true }
+    }
+    return { ok: true } // gracefully ignore if already removed
+  })
 }
+
