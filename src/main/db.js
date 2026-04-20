@@ -785,6 +785,18 @@ export function initDbHandlers() {
     }
   })
 
+  handle('db:deleteDocuments', async (_, { connId, dbName, collectionName, documentIds }) => {
+    try {
+      return await withRetry(connId, async (client) => {
+        const idObjs = documentIds.map(id => EJSON.deserialize({ _id: id })._id)
+        await client.db(dbName).collection(collectionName).deleteMany({ _id: { $in: idObjs } })
+        return { ok: true }
+      })
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
   // ==========================================
   // Index Operations
   // ==========================================

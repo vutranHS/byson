@@ -11,6 +11,7 @@ import OpsManager from './components/Overlays/OpsManager'
 import ServerInfo from './components/Overlays/ServerInfo'
 import { useWorkspaceStore } from './store/workspaceStore'
 import { useHistoryStore } from './store/historyStore'
+import { useSettingsStore } from './store/settingsStore'
 import {
   Server,
   Database,
@@ -75,6 +76,16 @@ function App() {
     useWorkspaceStore.getState().initStore()
     useHistoryStore.getState().initStore()
   }, [])
+
+  const theme = useSettingsStore(state => state.theme)
+
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('light')
+    } else {
+      document.documentElement.classList.remove('light')
+    }
+  }, [theme])
 
   // Listen for connection status changes from IPC
   useEffect(() => {

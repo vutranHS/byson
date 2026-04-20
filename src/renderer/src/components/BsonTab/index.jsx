@@ -322,7 +322,7 @@ const BsonTab = ({ tab }) => {
         <div className="h-8 bg-bg-tertiary border-b border-border flex items-center px-3 justify-between">
           <div className="flex items-center gap-2">
             <Terminal size={12} className="text-text-secondary" />
-            <span className="text-[10px] font-mono text-text-secondary uppercase tracking-widest text-[#FFFFFF]">Operation Log</span>
+            <span className="text-[10px] font-mono text-text-secondary uppercase tracking-widest text-text-primary">Operation Log</span>
           </div>
           <button 
             onClick={() => setLogs([])}

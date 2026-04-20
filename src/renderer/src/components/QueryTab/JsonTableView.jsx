@@ -1,8 +1,8 @@
 /* eslint-disable react/prop-types */
 /* eslint-disable no-unused-vars */
 
-import { useMemo, useState, useEffect, useRef } from 'react'
-import { Copy, Trash, Edit, Plus, FileText } from 'lucide-react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
+import { Copy, Trash, Edit, Plus, FileText, CheckSquare, Square } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import { useConnectionStore } from '../../store/connectionStore'
 
@@ -16,6 +16,11 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
     document: null
   })
 
+  // Selection state
+  const [selectedIndices, setSelectedIndices] = useState(new Set())
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState(null)
+
   // Set the specific cell to be expanded. `{ rowIndex, colName }`
   const [expandedCell, setExpandedCell] = useState(null)
 
@@ -25,8 +30,17 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
         setMenuConfig(null)
       }
     }
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false)
+      setDragStart(null)
+      document.body.classList.remove('selecting-active')
+    }
     window.addEventListener('click', handleClickOutside)
-    return () => window.removeEventListener('click', handleClickOutside)
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => {
+      window.removeEventListener('click', handleClickOutside)
+      window.removeEventListener('mouseup', handleGlobalMouseUp)
+    }
   }, [])
 
   const columns = useMemo(() => {
@@ -98,15 +112,60 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
     )
   }
 
-  const handleContextMenu = (e, doc, colName, val) => {
+  const handleContextMenu = (e, index) => {
     e.preventDefault()
+    
+    // If the clicked row is not in current selection, select ONLY this row
+    if (!selectedIndices.has(index)) {
+      setSelectedIndices(new Set([index]))
+    }
+
+    const doc = data[index]
     setMenuConfig({
       x: e.clientX,
       y: e.clientY,
+      index,
       document: doc,
-      colName,
-      value: val
+      selectedCount: selectedIndices.has(index) ? selectedIndices.size : 1
     })
+  }
+
+  const handleMouseDown = (e, index) => {
+    if (e.button !== 0) return // Only primary click
+    
+    setIsDragging(true)
+    setDragStart(index)
+    document.body.classList.add('selecting-active')
+
+    if (e.shiftKey && dragStart !== null) {
+      // Range selection
+      updateSelectionRange(dragStart, index)
+    } else if (e.metaKey || e.ctrlKey) {
+      // Toggle selection
+      const next = new Set(selectedIndices)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      setSelectedIndices(next)
+    } else {
+      // Single selection
+      setSelectedIndices(new Set([index]))
+    }
+  }
+
+  const handleMouseEnter = (index) => {
+    if (isDragging && dragStart !== null) {
+      updateSelectionRange(dragStart, index)
+    }
+  }
+
+  const updateSelectionRange = (start, end) => {
+    const range = new Set()
+    const low = Math.min(start, end)
+    const high = Math.max(start, end)
+    for (let i = low; i <= high; i++) {
+      range.add(i)
+    }
+    setSelectedIndices(range)
   }
 
   const copyToClipboard = (text) => {
@@ -174,6 +233,35 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
     }
   }
 
+  const handleDeleteMultiple = async () => {
+    const count = selectedIndices.size
+    if (!window.confirm(`Are you sure you want to delete ${count} selected documents?`)) return
+
+    try {
+      if (!window.electron) return
+
+      const docsToDelete = Array.from(selectedIndices).map(idx => data[idx])
+      const documentIds = docsToDelete.map(d => d._id)
+
+      const res = await window.electron.ipcRenderer.invoke('db:deleteDocuments', {
+        connId,
+        dbName,
+        collectionName,
+        documentIds
+      })
+
+      if (res && res.ok) {
+        setSelectedIndices(new Set())
+        if (onRefresh) onRefresh()
+      } else {
+        alert('Error deleting documents: ' + (res?.error || 'Unknown error'))
+      }
+    } catch (e) {
+      alert('Error deleting: ' + e.message)
+    }
+    setMenuConfig(null)
+  }
+
   const toggleExpandCell = (rowIndex, colName) => {
     if (expandedCell && expandedCell.rowIndex === rowIndex && expandedCell.colName === colName) {
       setExpandedCell(null)
@@ -207,21 +295,27 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
           {data.map((row, idx) => (
             <tr
               key={idx}
-              className="hover:bg-bg-tertiary border-b border-border/50 transition-colors"
+              onMouseDown={(e) => handleMouseDown(e, idx)}
+              onMouseEnter={() => handleMouseEnter(idx)}
+              onContextMenu={(e) => handleContextMenu(e, idx)}
+              className={`border-b border-border/50 transition-colors ${selectedIndices.has(idx) ? 'row-selected' : 'hover:bg-bg-tertiary'}`}
             >
-              <td className="px-2 py-1.5 border-r border-border/50 text-text-secondary text-center bg-bg-tertiary/20 select-none">
-                {idx + 1}
+              <td className="px-2 py-1.5 border-r border-border/50 text-text-secondary text-center bg-bg-tertiary/20 select-none flex items-center justify-center gap-1">
+                {selectedIndices.has(idx) ? (
+                  <CheckSquare size={10} className="text-accent" />
+                ) : (
+                  <span className="w-[10px]">{idx + 1}</span>
+                )}
               </td>
               {columns.map((col) => {
                 const isExpanded = expandedCell?.rowIndex === idx && expandedCell?.colName === col
                 return (
                   <td
                     key={col}
-                    onContextMenu={(e) => handleContextMenu(e, row, col, row[col])}
                     onDoubleClick={() => toggleExpandCell(idx, col)}
                     className={`px-3 py-1.5 border-r border-border/50 text-text-primary cursor-cell hover:bg-white/5 transition-colors align-top ${isExpanded ? 'whitespace-normal break-words min-w-[200px]' : 'max-w-[300px] select-none'}`}
                     title={
-                      !isExpanded ? 'Double click to expand value, Right click to open menu' : ''
+                      !isExpanded ? 'Double click to expand value, Right click for more options' : ''
                     }
                   >
                     {renderCell(row[col], isExpanded)}
@@ -240,51 +334,61 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
           className="fixed bg-bg-secondary border border-border rounded shadow-2xl py-1 z-50 text-xs text-text-primary min-w-[200px]"
           style={{ top: menuConfig.y, left: menuConfig.x }}
         >
-          <button
-            onClick={() => openDocumentModal('edit', menuConfig.document)}
-            className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-          >
-            <Edit size={13} /> Edit Document...
-          </button>
-          <button
-            onClick={() => openDocumentModal('view', menuConfig.document)}
-            className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-          >
-            <FileText size={13} /> View Document...
-          </button>
-          <button
-            onClick={() => openDocumentModal('insert', null)}
-            className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-          >
-            <Plus size={13} /> Insert Document...
-          </button>
+          {menuConfig.selectedCount > 1 ? (
+            <>
+              <div className="px-4 py-2 text-[10px] uppercase font-bold text-text-secondary border-b border-border mb-1">
+                Bulk Action ({menuConfig.selectedCount} objects)
+              </div>
+              <button
+                onClick={handleDeleteMultiple}
+                className="w-full text-left px-4 py-1.5 hover:bg-red-500 hover:text-white flex items-center gap-2 text-red-400"
+              >
+                <Trash size={13} /> Delete Documents...
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => openDocumentModal('edit', menuConfig.document)}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <Edit size={13} /> Edit Document...
+              </button>
+              <button
+                onClick={() => openDocumentModal('view', menuConfig.document)}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <FileText size={13} /> View Document...
+              </button>
+              <button
+                onClick={() => openDocumentModal('insert', null)}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <Plus size={13} /> Insert Document...
+              </button>
 
-          <div className="h-px bg-border my-1" />
+              <div className="h-px bg-border my-1" />
 
-          <button
-            onClick={() => copyToClipboard(String(menuConfig.value))}
-            className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-          >
-            <Copy size={13} /> Copy Value
-          </button>
-          <button
-            onClick={() => copyToClipboard(String(menuConfig.colName))}
-            className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-          >
-            <Copy size={13} /> Copy Name
-          </button>
+              <button
+                onClick={() => copyToClipboard(JSON.stringify(menuConfig.document, null, 2))}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <Copy size={13} /> Copy JSON
+              </button>
 
-          <div className="h-px bg-border my-1" />
+              <div className="h-px bg-border my-1" />
 
-          <button
-            onClick={() => {
-              setMenuConfig(null)
-              handleDeleteDocument(menuConfig.document)
-            }}
-            className="w-full text-left px-4 py-1.5 hover:bg-red-500 hover:text-white flex items-center gap-2 text-red-400"
-          >
-            <Trash size={13} /> Delete Document...
-          </button>
+              <button
+                onClick={() => {
+                  setMenuConfig(null)
+                  handleDeleteDocument(menuConfig.document)
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-red-500 hover:text-white flex items-center gap-2 text-red-400"
+              >
+                <Trash size={13} /> Delete Document...
+              </button>
+            </>
+          )}
         </div>
       )}
 

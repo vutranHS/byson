@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useConnectionStore } from '../../store/connectionStore'
+import { useSettingsStore } from '../../store/settingsStore'
 import { 
   Plus, 
   Trash2, 
@@ -30,6 +31,7 @@ const LANGUAGES = [
 
 export default function IndexTab({ tab }) {
   const { collectionIndexes, refreshIndexes } = useConnectionStore()
+  const theme = useSettingsStore(state => state.theme)
   const [loading, setLoading] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
   const [activeFormTab, setActiveFormTab] = useState('fields')
@@ -371,7 +373,7 @@ export default function IndexTab({ tab }) {
                           <Editor
                             height="100%"
                             language="json"
-                            theme="vs-dark"
+                            theme={theme === 'light' ? 'vs' : 'vs-dark'}
                             value={form.partialFilter}
                             onChange={val => setForm({...form, partialFilter: val})}
                             options={{ 
@@ -552,11 +554,11 @@ export default function IndexTab({ tab }) {
               </div>
 
               {showJsonPreview && (
-                <div className="h-48 border-t border-border/20 bg-[#1e1e1e]">
+                <div className="h-48 border-t border-border/20 bg-bg-secondary">
                   <Editor
                     height="100%"
                     language="json"
-                    theme="vs-dark"
+                    theme={theme === 'light' ? 'vs' : 'vs-dark'}
                     value={JSON.stringify(generatePayload(), null, 2)}
                     options={{ minimap: { enabled: false }, fontSize: 11, readOnly: true, lineNumbers: 'off', padding: { top: 10 } }}
                   />

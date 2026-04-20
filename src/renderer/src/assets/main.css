@@ -2,28 +2,74 @@
 
 /* 
   Modern UI design based on core guidelines.
-  Default theme: Dark Mode
+  Dynamically switches between Dark (Default) and Light modes.
 */
 
 @theme {
-  --color-bg-primary: #121212;
-  --color-bg-secondary: #1E1E1E;
-  --color-bg-tertiary: #2D2D2D;
+  /* Dynamic tokens tied to CSS variables */
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-tertiary: var(--bg-tertiary);
+  --color-bg-hover: var(--bg-hover);
   
-  --color-text-primary: #E0E0E0;
-  --color-text-secondary: #A0A0A0;
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
   
-  --color-accent: #007ACC;
-  --color-accent-hover: #005F9E;
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
   
-  --color-border: #333333;
+  --color-border: var(--border);
   
-  /* Badges for Results Tree/Table */
-  --color-badge-objectid: #D28445;
-  --color-badge-string: #6A9955;
-  --color-badge-int: #4EC9B0;
-  --color-badge-date: #C586C0;
-  --color-badge-boolean: #569CD6;
+  /* Badges for Results Tree/Table - slightly adjusted for legibility in both modes */
+  --color-badge-objectid: var(--badge-objectid);
+  --color-badge-string: var(--badge-string);
+  --color-badge-int: var(--badge-int);
+  --color-badge-date: var(--badge-date);
+  --color-badge-boolean: var(--badge-boolean);
+}
+
+:root {
+  /* Dark Mode (Default) */
+  --bg-primary: #121212;
+  --bg-secondary: #1E1E1E;
+  --bg-tertiary: #2D2D2D;
+  --bg-hover: #3D3D3D;
+  
+  --text-primary: #E0E0E0;
+  --text-secondary: #A0A0A0;
+  
+  --accent: #007ACC;
+  --accent-hover: #005F9E;
+  
+  --border: #333333;
+
+  --badge-objectid: #D28445;
+  --badge-string: #6A9955;
+  --badge-int: #4EC9B0;
+  --badge-date: #C586C0;
+  --badge-boolean: #569CD6;
+}
+
+:root.light {
+  /* Premium Light Mode Palette */
+  --bg-primary: #F8F9FA;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F1F3F5;
+  --bg-hover: #E9ECEF;
+  
+  --text-primary: #212529;
+  --text-secondary: #495057;
+  
+  --accent: #007ACC;
+  --accent-hover: #005F9E;
+  
+  --border: #DEE2E6;
+
+  --badge-objectid: #A65E2E;
+  --badge-string: #447135;
+  --badge-int: #2E8170;
+  --badge-date: #8B4A85;
+  --badge-boolean: #2E6DA4;
 }
 
 @layer base {
@@ -31,7 +77,7 @@
     @apply border-border box-border;
   }
   body {
-    @apply bg-bg-primary text-text-primary antialiased m-0 p-0 overflow-hidden font-sans;
+    @apply bg-bg-primary text-text-primary antialiased m-0 p-0 overflow-hidden font-sans transition-colors duration-200;
     /* Disable text selection by default for a native app feel */
     user-select: none;
   }
@@ -39,4 +85,20 @@
   .selectable {
     user-select: text;
   }
+}
+
+/* Row selection styles */
+.row-selected {
+  background-color: var(--accent) !important;
+  background-opacity: 0.15; /* Fallback */
+  background-color: color-mix(in srgb, var(--accent) 15%, transparent) !important;
+}
+
+.row-selected td {
+  color: var(--text-primary) !important;
+}
+
+/* Prevent text selection while dragging in the results table/tree */
+.selecting-active {
+  user-select: none !important;
 }

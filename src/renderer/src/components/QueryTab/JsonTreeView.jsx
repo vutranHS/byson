@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable react-hooks/rules-of-hooks */
-import { useState, createContext, useContext, useEffect, useRef } from 'react'
+import { useState, createContext, useContext, useEffect, useRef, useMemo } from 'react'
 import {
   ChevronRight,
   ChevronDown,
@@ -13,7 +13,8 @@ import {
   Trash,
   Edit,
   Plus,
-  FileText
+  FileText,
+  CheckSquare
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import { useConnectionStore } from '../../store/connectionStore'
@@ -44,9 +45,14 @@ const formatValue = (val, type) => {
   return String(val)
 }
 
-const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal }) => {
+const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, rootIndex }) => {
   const [expanded, setExpanded] = useState(false)
-  const { onContextMenu } = useContext(TreeContext)
+  const { 
+    onContextMenu, 
+    selectedIndices, 
+    onMouseDown, 
+    onMouseEnter 
+  } = useContext(TreeContext)
 
   // Listen for recursive signals from parent (Expand/Collapse All)
   useEffect(() => {
@@ -59,7 +65,8 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal })
   const isExpandable = type === 'Object' || type === 'Array'
   const displayValue = formatValue(value, type)
 
-  const handleToggle = () => {
+  const handleToggle = (e) => {
+    // Only toggle if not starting a drag on root or if it's nested
     if (isExpandable) setExpanded(!expanded)
   }
 
@@ -72,7 +79,8 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal })
       isExpandable,
       type,
       toggleExpand: () => setExpanded(!expanded),
-      triggerRecursive: (expand) => setLocalForceSignal({ expand, time: Date.now() })
+      triggerRecursive: (expand) => setLocalForceSignal({ expand, time: Date.now() }),
+      rootIndex // Pass root index for bulk actions
     })
   }
 
@@ -93,11 +101,17 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal })
     Null: 'text-red-500 bg-red-500/10 border-red-500/20'
   }
 
+  const isSelected = rootIndex !== undefined && selectedIndices?.has(rootIndex)
+
   return (
     <>
       <tr
         onContextMenu={handleRightClick}
-        className="hover:bg-bg-tertiary/50 border-b border-bg-tertiary cursor-pointer text-xs group"
+        onMouseDown={(e) => rootIndex !== undefined && onMouseDown?.(e, rootIndex)}
+        onMouseEnter={() => rootIndex !== undefined && onMouseEnter?.(rootIndex)}
+        className={`border-b border-bg-tertiary cursor-pointer text-xs group transition-colors ${
+          isSelected ? 'row-selected' : 'hover:bg-bg-tertiary/50'
+        }`}
         onClick={handleToggle}
       >
         <td
@@ -111,9 +125,13 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal })
           ) : (
             <span className="w-[18px] inline-block"></span>
           )}
-          {indexLabel && typeof indexLabel === 'number' && (
+          
+          {rootIndex !== undefined && isSelected ? (
+             <CheckSquare size={12} className="text-accent mr-1.5" />
+          ) : indexLabel && typeof indexLabel === 'number' && (
             <span className="text-accent opacity-80 mr-1">({indexLabel})</span>
           )}
+
           <span
             className={`${isExpandable ? 'font-medium text-text-primary' : 'text-text-primary opacity-90'}`}
           >
@@ -165,6 +183,11 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
   const [menuConfig, setMenuConfig] = useState(null)
   const menuRef = useRef(null)
 
+  // Selection state
+  const [selectedIndices, setSelectedIndices] = useState(new Set())
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState(null)
+
   // Modal state for View/Edit/Insert Document
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
@@ -172,15 +195,23 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
     document: null
   })
 
-  // Close menu on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuConfig(null)
       }
     }
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false)
+      setDragStart(null)
+      document.body.classList.remove('selecting-active')
+    }
     window.addEventListener('click', handleClickOutside)
-    return () => window.removeEventListener('click', handleClickOutside)
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => {
+      window.removeEventListener('click', handleClickOutside)
+      window.removeEventListener('mouseup', handleGlobalMouseUp)
+    }
   }, [])
 
   if (!Array.isArray(data) || data.length === 0) {
@@ -188,7 +219,52 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
   }
 
   const handleContextMenu = (e, ctx) => {
-    setMenuConfig({ x: e.clientX, y: e.clientY, ...ctx })
+    // If the right-clicked row is a document root and not in current selection, select ONLY this one
+    if (ctx.rootIndex !== undefined && !selectedIndices.has(ctx.rootIndex)) {
+      setSelectedIndices(new Set([ctx.rootIndex]))
+    }
+
+    setMenuConfig({ 
+      x: e.clientX, 
+      y: e.clientY, 
+      selectedCount: (ctx.rootIndex !== undefined && selectedIndices.has(ctx.rootIndex)) ? selectedIndices.size : 1,
+      ...ctx 
+    })
+  }
+
+  const handleMouseDown = (e, index) => {
+    if (e.button !== 0) return // Only primary click
+    
+    setIsDragging(true)
+    setDragStart(index)
+    document.body.classList.add('selecting-active')
+
+    if (e.shiftKey && dragStart !== null) {
+      updateSelectionRange(dragStart, index)
+    } else if (e.metaKey || e.ctrlKey) {
+      const next = new Set(selectedIndices)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      setSelectedIndices(next)
+    } else {
+      setSelectedIndices(new Set([index]))
+    }
+  }
+
+  const handleMouseEnter = (index) => {
+    if (isDragging && dragStart !== null) {
+      updateSelectionRange(dragStart, index)
+    }
+  }
+
+  const updateSelectionRange = (start, end) => {
+    const range = new Set()
+    const low = Math.min(start, end)
+    const high = Math.max(start, end)
+    for (let i = low; i <= high; i++) {
+      range.add(i)
+    }
+    setSelectedIndices(range)
   }
 
   const copyToClipboard = (text) => {
@@ -203,7 +279,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
 
   const handleSaveDocument = async (parsedDoc) => {
     try {
-      let res // Declared res here
+      let res
       if (!window.electron) return
 
       if (modalConfig.mode === 'insert') {
@@ -243,7 +319,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
         connId,
         dbName,
         collectionName,
-        documentId: doc._id // This is an EJSON object { $oid: "..." }
+        documentId: doc._id
       })
 
       if (res && res.ok) {
@@ -256,8 +332,42 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
     }
   }
 
+  const handleDeleteMultiple = async () => {
+    const count = selectedIndices.size
+    if (!window.confirm(`Are you sure you want to delete ${count} selected documents?`)) return
+
+    try {
+      if (!window.electron) return
+
+      const docsToDelete = Array.from(selectedIndices).map(idx => data[idx])
+      const documentIds = docsToDelete.map(d => d._id)
+
+      const res = await window.electron.ipcRenderer.invoke('db:deleteDocuments', {
+        connId,
+        dbName,
+        collectionName,
+        documentIds
+      })
+
+      if (res && res.ok) {
+        setSelectedIndices(new Set())
+        if (onRefresh) onRefresh()
+      } else {
+        alert('Error deleting documents: ' + (res?.error || 'Unknown error'))
+      }
+    } catch (e) {
+      alert('Error deleting: ' + e.message)
+    }
+    setMenuConfig(null)
+  }
+
   return (
-    <TreeContext.Provider value={{ onContextMenu: handleContextMenu }}>
+    <TreeContext.Provider value={{ 
+      onContextMenu: handleContextMenu,
+      selectedIndices,
+      onMouseDown: handleMouseDown,
+      onMouseEnter: handleMouseEnter
+    }}>
       <div
         className="overflow-auto h-full w-full bg-bg-primary relative"
         onContextMenu={(e) => e.preventDefault()}
@@ -279,7 +389,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
           <tbody>
             {data.map((doc, idx) => {
               const label = doc._id && doc._id.$oid ? `ObjectId("${doc._id.$oid}")` : `Document`
-              return <TreeNode key={idx} name={label} value={doc} depth={0} indexLabel={idx + 1} />
+              return <TreeNode key={idx} name={label} value={doc} depth={0} indexLabel={idx + 1} rootIndex={idx} />
             })}
           </tbody>
         </table>
@@ -291,75 +401,91 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
             className="fixed bg-bg-secondary border border-border rounded shadow-2xl py-1 z-50 text-xs text-text-primary min-w-[200px]"
             style={{ top: menuConfig.y, left: menuConfig.x }}
           >
-            {menuConfig.isExpandable && (
+            {menuConfig.selectedCount > 1 ? (
               <>
+                <div className="px-4 py-2 text-[10px] uppercase font-bold text-text-secondary border-b border-border mb-1">
+                  Bulk Action ({menuConfig.selectedCount} objects)
+                </div>
                 <button
-                  onClick={() => {
-                    menuConfig.triggerRecursive(true)
-                    setMenuConfig(null)
-                  }}
+                  onClick={handleDeleteMultiple}
+                  className="w-full text-left px-4 py-1.5 hover:bg-red-500 hover:text-white flex items-center gap-2 text-red-400"
+                >
+                  <Trash size={13} /> Delete Documents...
+                </button>
+              </>
+            ) : (
+              <>
+                {menuConfig.isExpandable && (
+                  <>
+                    <button
+                      onClick={() => {
+                        menuConfig.triggerRecursive(true)
+                        setMenuConfig(null)
+                      }}
+                      className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+                    >
+                      <Maximize2 size={13} /> Expand Recursively
+                    </button>
+                    <button
+                      onClick={() => {
+                        menuConfig.triggerRecursive(false)
+                        setMenuConfig(null)
+                      }}
+                      className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+                    >
+                      <Minimize2 size={13} /> Collapse Recursively
+                    </button>
+                    <div className="h-px bg-border my-1" />
+                  </>
+                )}
+
+                <button
+                  onClick={() => openDocumentModal('edit', menuConfig.value)}
                   className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
                 >
-                  <Maximize2 size={13} /> Expand Recursively
+                  <Edit size={13} /> Edit Document...
                 </button>
                 <button
-                  onClick={() => {
-                    menuConfig.triggerRecursive(false)
-                    setMenuConfig(null)
-                  }}
+                  onClick={() => openDocumentModal('view', menuConfig.value)}
                   className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
                 >
-                  <Minimize2 size={13} /> Collapse Recursively
+                  <FileText size={13} /> View Document...
                 </button>
+                <button
+                  onClick={() => openDocumentModal('insert', null)}
+                  className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+                >
+                  <Plus size={13} /> Insert Document...
+                </button>
+
                 <div className="h-px bg-border my-1" />
+
+                <button
+                  onClick={() => copyToClipboard(JSON.stringify(menuConfig.value, null, 2))}
+                  className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+                >
+                  <Copy size={13} /> Copy JSON
+                </button>
+                <button
+                  onClick={() => copyToClipboard(String(menuConfig.value))}
+                  className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+                >
+                  <Copy size={13} /> Copy Value
+                </button>
+
+                <div className="h-px bg-border my-1" />
+
+                <button
+                  onClick={() => {
+                    setMenuConfig(null)
+                    handleDeleteDocument(menuConfig.value)
+                  }}
+                  className="w-full text-left px-4 py-1.5 hover:bg-red-500 hover:text-white flex items-center gap-2 text-red-400"
+                >
+                  <Trash size={13} /> Delete Document...
+                </button>
               </>
             )}
-
-            <button
-              onClick={() => openDocumentModal('edit', menuConfig.value)}
-              className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-            >
-              <Edit size={13} /> Edit Document...
-            </button>
-            <button
-              onClick={() => openDocumentModal('view', menuConfig.value)}
-              className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-            >
-              <FileText size={13} /> View Document...
-            </button>
-            <button
-              onClick={() => openDocumentModal('insert', null)}
-              className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-            >
-              <Plus size={13} /> Insert Document...
-            </button>
-
-            <div className="h-px bg-border my-1" />
-
-            <button
-              onClick={() => copyToClipboard(JSON.stringify(menuConfig.value, null, 2))}
-              className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-            >
-              <Copy size={13} /> Copy JSON
-            </button>
-            <button
-              onClick={() => copyToClipboard(String(menuConfig.value))}
-              className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
-            >
-              <Copy size={13} /> Copy Value
-            </button>
-
-            <div className="h-px bg-border my-1" />
-
-            <button
-              onClick={() => {
-                setMenuConfig(null)
-                handleDeleteDocument(menuConfig.value)
-              }}
-              className="w-full text-left px-4 py-1.5 hover:bg-red-500 hover:text-white flex items-center gap-2 text-red-400"
-            >
-              <Trash size={13} /> Delete Document...
-            </button>
           </div>
         )}
       </div>

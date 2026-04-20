@@ -6,8 +6,12 @@ export const useSettingsStore = create(
     (set) => ({
       defaultPageSize: 50,
       autoSaveHistory: true,
+      theme: 'dark', // 'dark' | 'light'
+      
       setDefaultPageSize: (size) => set({ defaultPageSize: size }),
       setAutoSaveHistory: (val) => set({ autoSaveHistory: val }),
+      setTheme: (theme) => set({ theme }),
+      toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
     }),
     {
       name: 'leafbase-settings',

@@ -2,6 +2,7 @@
 import { useTabStore } from '../../store/tabStore'
 import { useConnectionStore } from '../../store/connectionStore'
 import { useRef, useState, useCallback, useEffect } from 'react'
+import { useSettingsStore } from '../../store/settingsStore'
 import {
   Table2,
   Clock,
@@ -43,6 +44,7 @@ const MAX_EDITOR_HEIGHT = 600
 export default function QueryTab({ tab }) {
   const { updateTabContent, executeTabQuery, setTabPagination, setTabViewMode } = useTabStore()
   const { connections } = useConnectionStore()
+  const theme = useSettingsStore(state => state.theme)
   const activeConn = connections.find((c) => c.id === tab.connId)
   const dbVersionRef = useRef(activeConn?.version || 'unknown')
 
@@ -271,7 +273,7 @@ export default function QueryTab({ tab }) {
         <Editor
           height="100%"
           language="javascript"
-          theme="vs-dark"
+          theme={theme === 'light' ? 'vs' : 'vs-dark'}
           value={tab.query}
           onChange={(val) => updateTabContent(tab.id, val)}
           onMount={(editor, monaco) => {
@@ -437,11 +439,11 @@ export default function QueryTab({ tab }) {
                 onRefresh={() => executeTabQuery(tab.id)}
               />
             ) : (
-              <div className="h-full w-full relative bg-[#1e1e1e]">
+              <div className="h-full w-full relative bg-bg-secondary">
                 <Editor
                   height="100%"
                   language="json"
-                  theme="vs-dark"
+                  theme={theme === 'light' ? 'vs' : 'vs-dark'}
                   value={JSON.stringify(tab.results, null, 2)}
                   options={{
                     minimap: { enabled: false },

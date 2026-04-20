@@ -1,12 +1,20 @@
 import { useState, useEffect } from 'react'
-import { X, Settings as SettingsIcon, Save } from 'lucide-react'
+import { X, Settings as SettingsIcon, Save, Sun, Moon } from 'lucide-react'
 import { useSettingsStore } from '../../store/settingsStore'
 
 export default function SettingsModal({ onClose }) {
-  const { defaultPageSize, setDefaultPageSize, autoSaveHistory, setAutoSaveHistory } = useSettingsStore()
+  const { 
+    defaultPageSize, 
+    setDefaultPageSize, 
+    autoSaveHistory, 
+    setAutoSaveHistory,
+    theme,
+    setTheme
+  } = useSettingsStore()
   
   const [pageSize, setPageSize] = useState(defaultPageSize || 50)
   const [saveHistory, setSaveHistory] = useState(autoSaveHistory !== false)
+  const [selectedTheme, setSelectedTheme] = useState(theme || 'dark')
 
   // Escape key to close
   useEffect(() => {
@@ -21,6 +29,7 @@ export default function SettingsModal({ onClose }) {
     const parsed = Math.max(1, Math.min(1000, parseInt(pageSize, 10) || 50))
     setDefaultPageSize(parsed)
     setAutoSaveHistory(saveHistory)
+    setTheme(selectedTheme)
     onClose()
   }
 
@@ -63,6 +72,37 @@ export default function SettingsModal({ onClose }) {
                 className="w-full bg-bg-tertiary border border-border rounded px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent transition-colors"
                 autoFocus
               />
+            </div>
+
+            {/* Theme Selection */}
+            <div className="pt-3 border-t border-border">
+              <label className="block text-sm font-medium text-text-primary mb-2">
+                Appearance
+              </label>
+              <div className="flex p-1 bg-bg-tertiary rounded-lg border border-border">
+                <button
+                  onClick={() => setSelectedTheme('light')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-all ${
+                    selectedTheme === 'light'
+                      ? 'bg-bg-secondary text-text-primary shadow-sm border border-border/50'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <Sun size={14} className={selectedTheme === 'light' ? 'text-yellow-500' : ''} />
+                  Light Mode
+                </button>
+                <button
+                  onClick={() => setSelectedTheme('dark')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-all ${
+                    selectedTheme === 'dark'
+                      ? 'bg-bg-secondary text-text-primary shadow-sm border border-border/50'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <Moon size={14} className={selectedTheme === 'dark' ? 'text-accent' : ''} />
+                  Dark Mode
+                </button>
+              </div>
             </div>
 
             {/* Auto-Save Query History */}
