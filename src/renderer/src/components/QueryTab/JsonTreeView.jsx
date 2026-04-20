@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable react-hooks/rules-of-hooks */
-import { useState, createContext, useContext, useEffect, useRef, useMemo } from 'react'
+import { useState, createContext, useContext, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import {
   ChevronRight,
   ChevronDown,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import { useConnectionStore } from '../../store/connectionStore'
+import { useSmartMenu } from '../../hooks/useSmartMenu'
 
 const TreeContext = createContext({})
 
@@ -180,8 +181,7 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, r
 export default function JsonTreeView({ connId, data, dbName, collectionName, onRefresh }) {
   const { connections } = useConnectionStore()
   const activeConnection = connections.find((c) => c.id === connId)
-  const [menuConfig, setMenuConfig] = useState(null)
-  const menuRef = useRef(null)
+  const { menu: menuConfig, menuRef, openMenu: setMenuConfig, closeMenu, style: menuStyle } = useSmartMenu()
 
   // Selection state
   const [selectedIndices, setSelectedIndices] = useState(new Set())
@@ -198,7 +198,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuConfig(null)
+        closeMenu()
       }
     }
     const handleGlobalMouseUp = () => {
@@ -399,7 +399,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
           <div
             ref={menuRef}
             className="fixed bg-bg-secondary border border-border rounded shadow-2xl py-1 z-50 text-xs text-text-primary min-w-[200px]"
-            style={{ top: menuConfig.y, left: menuConfig.x }}
+            style={menuStyle}
           >
             {menuConfig.selectedCount > 1 ? (
               <>

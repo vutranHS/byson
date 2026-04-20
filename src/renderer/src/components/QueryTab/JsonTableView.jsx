@@ -5,10 +5,10 @@ import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { Copy, Trash, Edit, Plus, FileText, CheckSquare, Square } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import { useConnectionStore } from '../../store/connectionStore'
+import { useSmartMenu } from '../../hooks/useSmartMenu'
 
 export default function JsonTableView({ connId, data, dbName, collectionName, onRefresh }) {
-  const [menuConfig, setMenuConfig] = useState(null)
-  const menuRef = useRef(null)
+  const { menu: menuConfig, menuRef, openMenu: setMenuConfig, closeMenu, style: menuStyle } = useSmartMenu()
 
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
@@ -27,7 +27,7 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuConfig(null)
+        closeMenu()
       }
     }
     const handleGlobalMouseUp = () => {
@@ -332,7 +332,7 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
         <div
           ref={menuRef}
           className="fixed bg-bg-secondary border border-border rounded shadow-2xl py-1 z-50 text-xs text-text-primary min-w-[200px]"
-          style={{ top: menuConfig.y, left: menuConfig.x }}
+          style={menuStyle}
         >
           {menuConfig.selectedCount > 1 ? (
             <>

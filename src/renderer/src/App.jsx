@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect } from 'react'
 import ConnectionManager from './components/ConnectionManager'
 import QueryTab from './components/QueryTab'
 import IndexTab from './components/IndexTab'
@@ -46,6 +46,7 @@ function App() {
   const [showLogs, setShowLogs] = useState(false)
   const [logTab, setLogTab] = useState('output') // 'output' or 'profiler'
   const [sidebarMenu, setSidebarMenu] = useState(null)
+  const [adjustedMenu, setAdjustedMenu] = useState(null)
   const [tabContextMenu, setTabContextMenu] = useState(null)
   const sidebarMenuRef = useRef(null)
   const tabContextMenuRef = useRef(null)
@@ -137,6 +138,19 @@ function App() {
     window.addEventListener('click', handleClick)
     return () => window.removeEventListener('click', handleClick)
   }, [])
+
+  // Flip context menu up if it would be clipped by the bottom of the screen
+  useLayoutEffect(() => {
+    if (!sidebarMenu) { setAdjustedMenu(null); return }
+    if (!sidebarMenuRef.current) { setAdjustedMenu(sidebarMenu); return }
+    const rect = sidebarMenuRef.current.getBoundingClientRect()
+    const viewH = window.innerHeight
+    const viewW = window.innerWidth
+    let { x, y } = sidebarMenu
+    if (y + rect.height > viewH - 8) y = Math.max(8, viewH - rect.height - 8)
+    if (x + rect.width > viewW - 8) x = Math.max(8, viewW - rect.width - 8)
+    setAdjustedMenu({ ...sidebarMenu, x, y })
+  }, [sidebarMenu])
 
   // Context Menu Handlers
   const handleDropDatabase = async (connId, dbName) => {
@@ -672,7 +686,7 @@ function App() {
         <div
           ref={sidebarMenuRef}
           className="fixed bg-bg-secondary border border-border rounded shadow-2xl py-1 z-50 text-xs text-text-primary min-w-[200px]"
-          style={{ top: sidebarMenu.y, left: sidebarMenu.x }}
+          style={{ top: adjustedMenu ? adjustedMenu.y : sidebarMenu.y, left: adjustedMenu ? adjustedMenu.x : sidebarMenu.x }}
         >
           {sidebarMenu.type === 'conn' && (
             <>
