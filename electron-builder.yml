@@ -31,6 +31,10 @@ mac:
       arch:
         - x64
         - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
   notarize: true
 dmg:
   artifactName: ${name}-${version}-${arch}.${ext}

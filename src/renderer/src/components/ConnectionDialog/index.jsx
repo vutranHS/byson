@@ -487,7 +487,7 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
                             <button
                               onClick={async () => {
                                 const path = await window.electron.ipcRenderer.invoke(
-                                  'dialog:openFile',
+                                  'shell:openFile',
                                   {
                                     properties: ['openFile'],
                                     filters: [
@@ -566,7 +566,7 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
                           <button
                             onClick={async () => {
                               const path = await window.electron.ipcRenderer.invoke(
-                                'dialog:openFile',
+                                'shell:openFile',
                                 {
                                   properties: ['openFile'],
                                   filters: [
@@ -600,7 +600,7 @@ export default function ConnectionDialog({ isOpen, onClose, connection }) {
                         <button
                           onClick={async () => {
                             const path = await window.electron.ipcRenderer.invoke(
-                              'dialog:openFile',
+                              'shell:openFile',
                               {
                                 properties: ['openFile'],
                                 filters: [

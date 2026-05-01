@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initStorageHandlers } from './storage'
 import { initDbHandlers } from './db'
+import { autoUpdater } from 'electron-updater'
 
 // Global Exception Handler to swallow benign network errors that might crash the app
 process.on('uncaughtException', (err) => {
@@ -98,6 +99,34 @@ app.whenReady().then(() => {
 
   // Initialize IPC listeners for MongoDB driver operations
   initDbHandlers()
+
+  // Setup Auto Updater
+  autoUpdater.on('update-available', (info) => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Available',
+      message: `A new version (${info.version}) is available. Downloading now...`
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Mandatory Update Ready',
+      message: `Version ${info.version} has been downloaded. The application will now restart to apply this mandatory update.`,
+      buttons: ['Restart Now'],
+      defaultId: 0,
+      cancelId: 0
+    }).then(() => {
+      autoUpdater.quitAndInstall()
+    })
+  })
+
+  autoUpdater.on('error', (err) => {
+    console.error('Auto Updater Error:', err)
+  })
+
+  autoUpdater.checkForUpdatesAndNotify()
 
   createWindow()
 
