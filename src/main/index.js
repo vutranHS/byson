@@ -44,8 +44,22 @@ function createWindow() {
     mainWindow.maximize()
   })
 
+  // SECURITY: Only forward http(s)/mailto links to the OS shell. Without this
+  // allowlist, a window.open('file:///...') or custom-scheme URL from the renderer
+  // (or a compromised dependency) could trigger arbitrary file/handler execution
+  // via shell.openExternal.
+  const ALLOWED_OPEN_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    try {
+      const { protocol } = new URL(details.url)
+      if (ALLOWED_OPEN_PROTOCOLS.has(protocol)) {
+        shell.openExternal(details.url)
+      } else {
+        console.warn('[WindowOpen] Blocked disallowed protocol:', protocol, details.url)
+      }
+    } catch (err) {
+      console.warn('[WindowOpen] Blocked invalid URL:', details.url, err.message)
+    }
     return { action: 'deny' }
   })
 
@@ -101,32 +115,40 @@ app.whenReady().then(() => {
   initDbHandlers()
 
   // Setup Auto Updater
-  autoUpdater.on('update-available', (info) => {
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Update Available',
-      message: `A new version (${info.version}) is available. Downloading now...`
+  // SECURITY: Only enable auto-update on macOS where builds are signed/notarized.
+  // Windows/Linux builds are currently unsigned (see RELEASE_GUIDE.md), so accepting
+  // an auto-downloaded binary would be a supply-chain RCE vector. Users on those
+  // platforms must update manually from the releases page until code-signing is set up.
+  if (process.platform === 'darwin') {
+    autoUpdater.on('update-available', (info) => {
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'Update Available',
+        message: `A new version (${info.version}) is available. Downloading now...`
+      })
     })
-  })
 
-  autoUpdater.on('update-downloaded', (info) => {
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Mandatory Update Ready',
-      message: `Version ${info.version} has been downloaded. The application will now restart to apply this mandatory update.`,
-      buttons: ['Restart Now'],
-      defaultId: 0,
-      cancelId: 0
-    }).then(() => {
-      autoUpdater.quitAndInstall()
+    autoUpdater.on('update-downloaded', (info) => {
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'Mandatory Update Ready',
+        message: `Version ${info.version} has been downloaded. The application will now restart to apply this mandatory update.`,
+        buttons: ['Restart Now'],
+        defaultId: 0,
+        cancelId: 0
+      }).then(() => {
+        autoUpdater.quitAndInstall()
+      })
     })
-  })
 
-  autoUpdater.on('error', (err) => {
-    console.error('Auto Updater Error:', err)
-  })
+    autoUpdater.on('error', (err) => {
+      console.error('Auto Updater Error:', err)
+    })
 
-  autoUpdater.checkForUpdatesAndNotify()
+    autoUpdater.checkForUpdatesAndNotify()
+  } else {
+    console.log('[AutoUpdater] Disabled on', process.platform, '- builds are unsigned. Update manually from the releases page.')
+  }
 
   createWindow()
 

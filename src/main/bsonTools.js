@@ -2,7 +2,7 @@ import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import https from 'https'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import AdmZip from 'adm-zip'
 
 const TOOLS_VERSION = '100.15.0'
@@ -83,7 +83,12 @@ export async function downloadBsonTools(win) {
             } else {
               // Assume .tgz and use system tar
               await new Promise((res, rej) => {
-                exec(`tar -xzf "${zipPath}" -C "${toolsDir}"`, (err) => {
+                // SECURITY: execFile passes args directly (no shell), so paths
+                // containing spaces or shell metacharacters (e.g. when userData
+                // sits under "C:\Users\Foo & Bar\AppData\...") can't be interpreted
+                // as a command. The previous exec() with template strings would
+                // have evaluated those characters in cmd/bash.
+                execFile('tar', ['-xzf', zipPath, '-C', toolsDir], (err) => {
                   if (err) rej(err)
                   else res()
                 })
