@@ -36,9 +36,9 @@ self.MonacoEnvironment = {
 
 loader.config({ monaco })
 
-// Default editor height ~ 2 lines of query text + padding
-const DEFAULT_EDITOR_HEIGHT = 72
-const MIN_EDITOR_HEIGHT = 48
+// Default editor height includes the query toolbar plus ~2 lines of query text.
+const DEFAULT_EDITOR_HEIGHT = 112
+const MIN_EDITOR_HEIGHT = 84
 const MAX_EDITOR_HEIGHT = 600
 
 export default function QueryTab({ tab }) {
@@ -236,8 +236,8 @@ export default function QueryTab({ tab }) {
       </div>
 
       {/* Editor Area - resizable height */}
-      <div className="border-b border-border flex flex-col relative shrink-0" style={{ height: editorHeight }}>
-        <div className="absolute top-2 right-4 z-10 flex gap-2">
+      <div className="border-b border-border flex flex-col shrink-0 min-h-0" style={{ height: editorHeight }}>
+        <div className="shrink-0 flex items-center justify-end gap-2 px-3 py-1.5 bg-bg-secondary border-b border-border overflow-x-auto whitespace-nowrap select-none">
           <button
             onClick={() => {
               useTabStore.getState().openTab({
@@ -249,7 +249,7 @@ export default function QueryTab({ tab }) {
               })
             }}
             title="Export this query result"
-            className="bg-bg-tertiary border border-border hover:bg-bg-hover text-text-primary text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition-colors"
+            className="bg-bg-tertiary border border-border hover:bg-bg-hover text-text-primary text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition-colors shrink-0"
           >
             <Download size={12} className="text-accent" /> Export Query
           </button>
@@ -257,7 +257,7 @@ export default function QueryTab({ tab }) {
           <button
             onClick={() => setShowHistory(true)}
             title="View query history"
-            className="bg-bg-tertiary border border-border hover:bg-bg-hover text-text-primary text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition-colors"
+            className="bg-bg-tertiary border border-border hover:bg-bg-hover text-text-primary text-[11px] px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition-colors shrink-0"
           >
             <History size={12} className="text-accent" /> History
           </button>
@@ -265,11 +265,12 @@ export default function QueryTab({ tab }) {
           <button
             onClick={() => executeTabQuery(tab.id)}
             disabled={tab.loading}
-            className="bg-accent hover:bg-accent-hover text-white text-xs px-3 py-1.5 rounded flex items-center gap-1 shadow disabled:opacity-50 transition-colors"
+            className="bg-accent hover:bg-accent-hover text-white text-xs px-3 py-1.5 rounded flex items-center gap-1 shadow disabled:opacity-50 transition-colors shrink-0"
           >
             <span>▶</span> {tab.loading ? 'Running...' : 'Run'}
           </button>
         </div>
+        <div className="flex-1 min-h-0">
         <Editor
           height="100%"
           language="javascript"
@@ -298,6 +299,7 @@ export default function QueryTab({ tab }) {
             </div>
           }
         />
+        </div>
       </div>
 
       {/* Resize Handle */}

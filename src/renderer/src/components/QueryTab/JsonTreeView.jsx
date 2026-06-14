@@ -46,13 +46,43 @@ const formatValue = (val, type) => {
   return String(val)
 }
 
-const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, rootIndex }) => {
+const formatValueForClipboard = (value) => {
+  if (value === null) return 'null'
+  if (typeof value === 'undefined') return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+const isCopyShortcut = (event) =>
+  (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c'
+
+const shouldIgnoreCopyShortcut = (event) => {
+  const target = event.target
+  if (!target) return false
+
+  const tagName = target.tagName?.toLowerCase()
+  if (tagName === 'input' || tagName === 'textarea' || target.isContentEditable) return true
+  if (target.closest?.('.monaco-editor')) return true
+
+  const selectedText = window.getSelection?.().toString()
+  return Boolean(selectedText)
+}
+
+const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, rootIndex, path }) => {
   const [expanded, setExpanded] = useState(false)
-  const { 
-    onContextMenu, 
-    selectedIndices, 
-    onMouseDown, 
-    onMouseEnter 
+  const {
+    onContextMenu,
+    selectedIndices,
+    onMouseDown,
+    onMouseEnter,
+    selectedField,
+    onSelectField
   } = useContext(TreeContext)
 
   // Listen for recursive signals from parent (Expand/Collapse All)
@@ -103,6 +133,12 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, r
   }
 
   const isSelected = rootIndex !== undefined && selectedIndices?.has(rootIndex)
+  const isSelectedField = selectedField?.path === path
+
+  const handleSelectField = (e) => {
+    e.stopPropagation()
+    onSelectField?.({ path, name, value })
+  }
 
   return (
     <>
@@ -139,7 +175,13 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, r
             {name}
           </span>
         </td>
-        <td className="px-3 py-1 text-text-secondary truncate max-w-[400px]">{displayValue}</td>
+        <td
+          onMouseDown={handleSelectField}
+          className={`px-3 py-1 text-text-secondary truncate max-w-[400px] cursor-cell transition-colors ${isSelectedField ? 'bg-accent/10 ring-1 ring-inset ring-accent/70 text-text-primary' : 'hover:bg-white/5'}`}
+          title="Click to select value, Cmd/Ctrl+C to copy"
+        >
+          {displayValue}
+        </td>
         <td className="px-3 py-1">
           <span
             className={`text-[9px] px-1.5 py-0.5 rounded font-mono border ${typeColors[type] || 'text-text-secondary bg-bg-tertiary border-border/30'}`}
@@ -159,6 +201,7 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, r
             value={value[k]}
             depth={depth + 1}
             forcedExpansionSignal={activeSignal}
+            path={`${path}.${k}`}
           />
         ))}
 
@@ -172,6 +215,7 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, r
             value={v}
             depth={depth + 1}
             forcedExpansionSignal={activeSignal}
+            path={`${path}[${i}]`}
           />
         ))}
     </>
@@ -185,6 +229,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
 
   // Selection state
   const [selectedIndices, setSelectedIndices] = useState(new Set())
+  const [selectedField, setSelectedField] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState(null)
 
@@ -194,6 +239,10 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
     mode: 'view', // 'view'|'edit'|'insert'
     document: null
   })
+
+  useEffect(() => {
+    setSelectedField(null)
+  }, [data])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -271,6 +320,18 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
     navigator.clipboard.writeText(text)
     setMenuConfig(null)
   }
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (!selectedField || !isCopyShortcut(event) || shouldIgnoreCopyShortcut(event)) return
+
+      event.preventDefault()
+      copyToClipboard(formatValueForClipboard(selectedField.value))
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedField])
 
   const openDocumentModal = (mode, doc) => {
     setModalConfig({ isOpen: true, mode, document: doc })
@@ -362,11 +423,13 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
   }
 
   return (
-    <TreeContext.Provider value={{ 
+    <TreeContext.Provider value={{
       onContextMenu: handleContextMenu,
       selectedIndices,
       onMouseDown: handleMouseDown,
-      onMouseEnter: handleMouseEnter
+      onMouseEnter: handleMouseEnter,
+      selectedField,
+      onSelectField: setSelectedField
     }}>
       <div
         className="overflow-auto h-full w-full bg-bg-primary relative"
@@ -389,7 +452,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
           <tbody>
             {data.map((doc, idx) => {
               const label = doc._id && doc._id.$oid ? `ObjectId("${doc._id.$oid}")` : `Document`
-              return <TreeNode key={idx} name={label} value={doc} depth={0} indexLabel={idx + 1} rootIndex={idx} />
+              return <TreeNode key={idx} name={label} value={doc} depth={0} indexLabel={idx + 1} rootIndex={idx} path={`root:${idx}`} />
             })}
           </tbody>
         </table>
@@ -467,7 +530,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
                   <Copy size={13} /> Copy JSON
                 </button>
                 <button
-                  onClick={() => copyToClipboard(String(menuConfig.value))}
+                  onClick={() => copyToClipboard(formatValueForClipboard(menuConfig.value))}
                   className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
                 >
                   <Copy size={13} /> Copy Value

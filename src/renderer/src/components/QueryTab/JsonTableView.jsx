@@ -7,6 +7,37 @@ import DocumentModal from './DocumentModal'
 import { useConnectionStore } from '../../store/connectionStore'
 import { useSmartMenu } from '../../hooks/useSmartMenu'
 
+const DEFAULT_COLUMN_WIDTH = 180
+const MIN_COLUMN_WIDTH = 60
+
+const isCopyShortcut = (event) =>
+  (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c'
+
+const shouldIgnoreCopyShortcut = (event) => {
+  const target = event.target
+  if (!target) return false
+
+  const tagName = target.tagName?.toLowerCase()
+  if (tagName === 'input' || tagName === 'textarea' || target.isContentEditable) return true
+  if (target.closest?.('.monaco-editor')) return true
+
+  const selectedText = window.getSelection?.().toString()
+  return Boolean(selectedText)
+}
+
+const formatValueForClipboard = (value) => {
+  if (value === null) return 'null'
+  if (typeof value === 'undefined') return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 export default function JsonTableView({ connId, data, dbName, collectionName, onRefresh }) {
   const { menu: menuConfig, menuRef, openMenu: setMenuConfig, closeMenu, style: menuStyle } = useSmartMenu()
 
@@ -23,6 +54,12 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
 
   // Set the specific cell to be expanded. `{ rowIndex, colName }`
   const [expandedCell, setExpandedCell] = useState(null)
+  const [selectedCell, setSelectedCell] = useState(null)
+  const [columnWidths, setColumnWidths] = useState({})
+
+  useEffect(() => {
+    setSelectedCell(null)
+  }, [data])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -101,8 +138,8 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
     }
 
     return (
-      <div className="flex justify-between items-start gap-2 h-full">
-        <span className={isExpanded ? 'whitespace-pre-wrap' : 'truncate flex-1'}>{display}</span>
+      <div className="flex justify-between items-start gap-2 h-full min-w-0">
+        <span className={isExpanded ? 'whitespace-pre-wrap' : 'truncate flex-1 min-w-0'}>{display}</span>
         {typeBadge && (
           <span className="text-[9px] px-1 rounded font-mono bg-bg-primary text-text-secondary border border-border/50 shrink-0 select-none mt-0.5">
             {typeBadge}
@@ -168,10 +205,48 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
     setSelectedIndices(range)
   }
 
+  const handleColumnResizeStart = (e, col) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const startX = e.clientX
+    const startWidth = columnWidths[col] || DEFAULT_COLUMN_WIDTH
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMouseMove = (moveEvent) => {
+      const nextWidth = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + moveEvent.clientX - startX))
+      setColumnWidths((prev) => ({ ...prev, [col]: nextWidth }))
+    }
+
+    const onMouseUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }
+
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text)
     setMenuConfig(null)
   }
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (!selectedCell || !isCopyShortcut(event) || shouldIgnoreCopyShortcut(event)) return
+
+      event.preventDefault()
+      copyToClipboard(formatValueForClipboard(selectedCell.value))
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedCell])
 
   const openDocumentModal = (mode, doc) => {
     setModalConfig({ isOpen: true, mode, document: doc })
@@ -275,7 +350,21 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
       className="overflow-auto h-full w-full bg-bg-primary relative"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <table className="text-left border-collapse whitespace-nowrap text-xs min-w-full">
+      <table
+        className="text-left border-collapse whitespace-nowrap text-xs table-fixed"
+        style={{
+          width: Math.max(
+            40 + columns.reduce((total, col) => total + (columnWidths[col] || DEFAULT_COLUMN_WIDTH), 0),
+            1
+          )
+        }}
+      >
+        <colgroup>
+          <col style={{ width: 40 }} />
+          {columns.map((col) => (
+            <col key={col} style={{ width: columnWidths[col] || DEFAULT_COLUMN_WIDTH }} />
+          ))}
+        </colgroup>
         <thead className="sticky top-0 bg-bg-tertiary shadow-sm z-10">
           <tr>
             <th className="px-2 py-1.5 border border-border font-medium text-text-secondary w-10 text-center">
@@ -284,9 +373,14 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
             {columns.map((col) => (
               <th
                 key={col}
-                className="px-3 py-1.5 border border-border font-medium text-text-primary bg-bg-tertiary shadow-sm resize-x overflow-auto min-w-[100px]"
+                className="px-3 py-1.5 border border-border font-medium text-text-primary bg-bg-tertiary shadow-sm min-w-[60px] relative group select-none"
               >
-                {col}
+                <div className="truncate pr-2" title={col}>{col}</div>
+                <div
+                  onMouseDown={(e) => handleColumnResizeStart(e, col)}
+                  className="absolute top-0 right-0 h-full w-2 cursor-col-resize hover:bg-accent/50 group-hover:bg-accent/20 transition-colors"
+                  title="Drag to resize column"
+                />
               </th>
             ))}
           </tr>
@@ -309,13 +403,15 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
               </td>
               {columns.map((col) => {
                 const isExpanded = expandedCell?.rowIndex === idx && expandedCell?.colName === col
+                const isSelectedCell = selectedCell?.rowIndex === idx && selectedCell?.colName === col
                 return (
                   <td
                     key={col}
+                    onMouseDown={() => setSelectedCell({ rowIndex: idx, colName: col, value: row[col] })}
                     onDoubleClick={() => toggleExpandCell(idx, col)}
-                    className={`px-3 py-1.5 border-r border-border/50 text-text-primary cursor-cell hover:bg-white/5 transition-colors align-top ${isExpanded ? 'whitespace-normal break-words min-w-[200px]' : 'max-w-[300px] select-none'}`}
+                    className={`px-3 py-1.5 border-r border-border/50 text-text-primary cursor-cell hover:bg-white/5 transition-colors align-top ${isExpanded ? 'whitespace-normal break-words min-w-[200px]' : 'select-none'} ${isSelectedCell ? 'bg-accent/10 ring-1 ring-inset ring-accent/70' : ''}`}
                     title={
-                      !isExpanded ? 'Double click to expand value, Right click for more options' : ''
+                      !isExpanded ? 'Click to select value, double click to expand, Cmd/Ctrl+C to copy' : 'Cmd/Ctrl+C to copy value'
                     }
                   >
                     {renderCell(row[col], isExpanded)}
