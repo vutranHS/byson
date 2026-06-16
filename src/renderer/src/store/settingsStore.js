@@ -14,7 +14,7 @@ export const useSettingsStore = create(
       toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
     }),
     {
-      name: 'leafbase-settings',
+      name: 'byson-settings',
     }
   )
 )

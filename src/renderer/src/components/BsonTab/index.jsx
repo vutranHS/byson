@@ -126,7 +126,7 @@ const BsonTab = ({ tab }) => {
           MongoDB Database Tools Needed
         </h2>
         <p className="text-sm text-text-secondary max-w-md mb-8">
-          To perform BSON backup and restore operations, LeafBase needs the official MongoDB Database Tools (mongodump & mongorestore).
+          To perform BSON backup and restore operations, BysonDB needs the official MongoDB Database Tools (mongodump & mongorestore).
         </p>
 
         {downloading ? (

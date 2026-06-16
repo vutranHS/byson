@@ -1,5 +1,5 @@
-appId: com.vutran.leafbase
-productName: LeafBase
+appId: app.byson.desktop
+productName: BysonDB
 directories:
   buildResources: build
 files:
@@ -11,7 +11,7 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: leafbase
+  executableName: byson
 nsis:
   artifactName: ${name}-${version}-${arch}-setup.${ext}
   shortcutName: ${productName}
@@ -50,4 +50,4 @@ npmRebuild: false
 publish:
   provider: github
   owner: vutranHS
-  repo: leafbase
+  repo: byson

@@ -1,6 +1,6 @@
-# Contributing to LeafBase
+# Contributing to BysonDB
 
-First off, thank you for considering contributing to LeafBase! It's people like you that make LeafBase such a great tool.
+First off, thank you for considering contributing to BysonDB! It's people like you that make BysonDB such a great tool.
 
 ## How Can I Contribute?
 
@@ -25,4 +25,4 @@ The process which at its core is how most Open Source projects work:
 We use ESLint and Prettier to maintain a consistent coding style. Please ensure your code follows these standards before submitting a PR.
 
 ## License
-By contributing to LeafBase, you agree that your contributions will be licensed under its [MIT License](LICENSE).
+By contributing to BysonDB, you agree that your contributions will be licensed under its [MIT License](LICENSE).

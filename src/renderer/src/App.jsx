@@ -255,7 +255,7 @@ function App() {
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-bg-primary text-text-primary relative">
       {/* 1. Header / Toolbar */}
       <header className="h-12 bg-bg-tertiary border-b border-border flex items-center px-4 shrink-0">
-        <h1 className="font-semibold text-sm">LeafBase 2025</h1>
+        <h1 className="font-semibold text-sm">BysonDB 2025</h1>
       </header>
 
       {/* 2. Main Content Area */}

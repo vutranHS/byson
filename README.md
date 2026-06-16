@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="resources/logo.png" width="150" alt="LeafBase Logo">
+  <img src="resources/logo.png" width="150" alt="BysonDB Logo">
 </p>
 
-<h1 align="center">LeafBase</h1>
+<h1 align="center">BysonDB</h1>
 
 <p align="center">
   <strong>A modern, cross-platform MongoDB GUI — the open-source successor to Robo3T.</strong>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/license/vutranHS/leafbase" alt="License">
-  <img src="https://img.shields.io/github/v/release/vutranHS/leafbase" alt="Latest Release">
-  <img src="https://img.shields.io/github/stars/vutranHS/leafbase?style=social" alt="Stars">
+  <img src="https://img.shields.io/github/license/vutranHS/byson" alt="License">
+  <img src="https://img.shields.io/github/v/release/vutranHS/byson" alt="Latest Release">
+  <img src="https://img.shields.io/github/stars/vutranHS/byson?style=social" alt="Stars">
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome">
   <img src="https://img.shields.io/badge/Electron-28+-blue.svg" alt="Electron">
   <img src="https://img.shields.io/badge/React-18-blue.svg" alt="React">
@@ -20,9 +20,9 @@
 
 ---
 
-LeafBase is a high-performance, open-source MongoDB management tool built with Electron and React. It provides native support for MongoDB 4.4 through 8.0+, including advanced features like SSH Tunneling, TLS/SSL, and a rich results viewer (Tree, Table, JSON).
+BysonDB is a high-performance, open-source MongoDB management tool built with Electron and React. It provides native support for MongoDB 4.4 through 8.0+, including advanced features like SSH Tunneling, TLS/SSL, and a rich results viewer (Tree, Table, JSON).
 
-Developed with a focus on speed, aesthetics, and reliability, LeafBase offers a premium experience for database administrators and developers alike — completely free, no paywalls, no feature tiers.
+Developed with a focus on speed, aesthetics, and reliability, BysonDB offers a premium experience for database administrators and developers alike — completely free, no paywalls, no feature tiers.
 
 ## 📸 Screenshots
 
@@ -37,13 +37,13 @@ Developed with a focus on speed, aesthetics, and reliability, LeafBase offers a 
 
 ---
 
-## 🤔 Why LeafBase?
+## 🤔 Why BysonDB?
 
 Robo3T was the go-to MongoDB GUI for hundreds of thousands of developers — lightweight, fast, and free. It was discontinued after acquisition. MongoDB Compass is the official alternative but is heavy and opinionated. Other OSS options are either unmaintained or lock core features behind a paywall.
 
-**LeafBase fills that gap.** Same simplicity, modern codebase, actively maintained.
+**BysonDB fills that gap.** Same simplicity, modern codebase, actively maintained.
 
-| Feature | LeafBase | Robo3T | MongoDB Compass |
+| Feature | BysonDB | Robo3T | MongoDB Compass |
 |---|---|---|---|
 | Free & open-source | ✅ | ✅ | ✅ |
 | SSH Tunneling | ✅ | ✅ | ✅ (paid) |
@@ -71,10 +71,10 @@ Robo3T was the go-to MongoDB GUI for hundreds of thousands of developers — lig
 
 ## 📥 Downloads
 
-Ready-to-use binaries for Windows, macOS, and Linux are available on the **[Releases Page](https://github.com/vutranHS/leafbase/releases)**.
+Ready-to-use binaries for Windows, macOS, and Linux are available on the **[Releases Page](https://github.com/vutranHS/byson/releases)**.
 
 > [!TIP]
-> **macOS (v1.0.9+)** is now officially **Digitally Signed** and **Notarized** by Apple. macOS users can open LeafBase directly. 
+> **macOS (v1.0.9+)** is now officially **Digitally Signed** and **Notarized** by Apple. macOS users can open BysonDB directly. 
 > 
 > **Windows builds** are currently pending approval from [SignPath.io](https://signpath.io/). Until then, Windows users may still see a SmartScreen warning. Please refer to our **[Installation & Release Guide](RELEASE_GUIDE.md)** for more details.
 
@@ -87,8 +87,8 @@ Ready-to-use binaries for Windows, macOS, and Linux are available on the **[Rele
 
 ### Installation
 ```bash
-$ git clone https://github.com/vutranHS/leafbase.git
-$ cd leafbase
+$ git clone https://github.com/vutranHS/byson.git
+$ cd byson
 $ npm install
 ```
 

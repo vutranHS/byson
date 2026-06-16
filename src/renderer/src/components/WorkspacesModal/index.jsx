@@ -32,7 +32,7 @@ export default function WorkspacesModal({ onClose }) {
     const jsonStr = JSON.stringify(lastSession, null, 2)
     const filePath = await window.electron.ipcRenderer.invoke('shell:saveFile', {
       title: 'Export Workspace Session',
-      defaultPath: `leafbase_workspace_${new Date().toISOString().slice(0, 10)}.json`,
+      defaultPath: `byson_workspace_${new Date().toISOString().slice(0, 10)}.json`,
       filters: [{ name: 'JSON Files', extensions: ['json'] }]
     })
 
