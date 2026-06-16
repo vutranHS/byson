@@ -14,22 +14,6 @@ export const useHistoryStore = create((set, get) => ({
       if (records && records.length > 0) {
         set({ records, isInitialized: true })
       } else {
-        // 2. Migration: Check legacy localStorage
-        const legacy = localStorage.getItem('leafbase-history')
-        if (legacy) {
-          try {
-            const parsed = JSON.parse(legacy)
-            if (parsed.state && parsed.state.records) {
-              set({ records: parsed.state.records, isInitialized: true })
-              // Sync to IPC immediately to migrate and encrypt it
-              await get().saveToStorage(parsed.state.records)
-            }
-            // Clear legacy from insecure storage
-            localStorage.removeItem('leafbase-history')
-          } catch (e) {
-            console.error('[History] Migration from localStorage failed:', e)
-          }
-        }
         set({ isInitialized: true })
       }
     } catch (err) {

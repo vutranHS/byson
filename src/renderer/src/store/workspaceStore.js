@@ -13,32 +13,12 @@ export const useWorkspaceStore = create((set, get) => ({
       const session = await window.electron.ipcRenderer.invoke('storage:getWorkspace')
       
       if (session) {
-        set({ 
+        set({
           lastSession: session.lastSession || [],
           lastSavedAt: session.lastSavedAt,
           isInitialized: true
         })
       } else {
-        // 2. Migration: Check legacy localStorage
-        const legacy = localStorage.getItem('leafbase-workspace')
-        if (legacy) {
-          try {
-            const parsed = JSON.parse(legacy)
-            if (parsed.state) {
-               const legacySession = { 
-                 lastSession: parsed.state.lastSession || [],
-                 lastSavedAt: parsed.state.lastSavedAt
-               }
-               set({ ...legacySession, isInitialized: true })
-               // Sync to IPC immediately to migrate and encrypt it
-               await get().saveLastSession(legacySession.lastSession)
-            }
-            // Clear legacy from insecure storage
-            localStorage.removeItem('leafbase-workspace')
-          } catch (e) {
-            console.error('[Workspace] Migration from localStorage failed:', e)
-          }
-        }
         set({ isInitialized: true })
       }
     } catch (err) {
