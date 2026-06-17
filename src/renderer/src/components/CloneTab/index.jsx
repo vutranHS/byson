@@ -11,9 +11,11 @@ import {
   ArrowRight
 } from 'lucide-react'
 import { useConnectionStore } from '../../store/connectionStore'
+import { useSettingsStore } from '../../store/settingsStore'
 
 export default function CloneTab({ tab }) {
   const { connections } = useConnectionStore()
+  const isLight = useSettingsStore((state) => state.theme) === 'light'
 
   // Target Configuration
   const [targetConnId, setTargetConnId] = useState(tab.connId)
@@ -33,6 +35,10 @@ export default function CloneTab({ tab }) {
   const [progress, setProgress] = useState(null)
   const [logs, setLogs] = useState([])
   const [operationId, setOperationId] = useState(null)
+
+  const addLog = (msg, type = 'info') => {
+    setLogs((prev) => [...prev, { time: new Date().toLocaleTimeString(), msg, type }])
+  }
 
   useEffect(() => {
     if (!window.electron) return
@@ -68,17 +74,18 @@ export default function CloneTab({ tab }) {
     }
   }, [operationId])
 
-  const addLog = (msg, type = 'info') => {
-    setLogs((prev) => [...prev, { time: new Date().toLocaleTimeString(), msg, type }])
-  }
-
   const handleStart = async () => {
     if (!targetConnId || !targetDb || (tab.collectionName && !targetCol)) {
       alert('Please fill in all target details.')
       return
     }
 
-    if (options.dropTarget && !window.confirm(`WARNING: This will drop the target ${tab.collectionName ? 'collection' : 'database'} before cloning! Are you sure?`)) {
+    if (
+      options.dropTarget &&
+      !window.confirm(
+        `WARNING: This will drop the target ${tab.collectionName ? 'collection' : 'database'} before cloning! Are you sure?`
+      )
+    ) {
       return
     }
 
@@ -357,22 +364,35 @@ export default function CloneTab({ tab }) {
           )}
 
           {/* Logs */}
-          <div className="flex-1 overflow-auto bg-[#1e1e1e] p-2 font-mono text-[11px] leading-relaxed">
+          <div
+            className={`flex-1 overflow-auto p-2 font-mono text-[11px] leading-relaxed ${isLight ? 'bg-bg-tertiary' : 'bg-[#1e1e1e]'}`}
+          >
             {logs.length === 0 ? (
-              <span className="text-gray-500 px-2 italic">Awaiting operation...</span>
+              <span className="text-text-secondary px-2 italic">Awaiting operation...</span>
             ) : (
               logs.map((log, i) => (
-                <div key={i} className="flex gap-2 hover:bg-white/5 px-2 py-0.5 rounded">
-                  <span className="text-gray-500 shrink-0">[{log.time}]</span>
+                <div
+                  key={i}
+                  className={`flex gap-2 px-2 py-0.5 rounded ${isLight ? 'hover:bg-black/5' : 'hover:bg-white/5'}`}
+                >
+                  <span className="text-text-secondary shrink-0">[{log.time}]</span>
                   <span
                     className={`${
                       log.type === 'error'
-                        ? 'text-red-400'
+                        ? isLight
+                          ? 'text-red-600'
+                          : 'text-red-400'
                         : log.type === 'success'
-                          ? 'text-green-400'
+                          ? isLight
+                            ? 'text-green-600'
+                            : 'text-green-400'
                           : log.type === 'warning'
-                            ? 'text-yellow-400'
-                            : 'text-gray-300'
+                            ? isLight
+                              ? 'text-yellow-600'
+                              : 'text-yellow-400'
+                            : isLight
+                              ? 'text-text-primary'
+                              : 'text-gray-300'
                     }`}
                   >
                     {log.msg}

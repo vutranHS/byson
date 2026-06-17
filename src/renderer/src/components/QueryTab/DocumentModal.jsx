@@ -1,11 +1,11 @@
 /* eslint-disable react/prop-types */
-/* eslint-disable react-hooks/exhaustive-deps */
-/* eslint-disable react-hooks/rules-of-hooks */
 /* eslint-disable react-hooks/set-state-in-effect */
+
 import { useState, useEffect } from 'react'
 import Editor from '@monaco-editor/react'
 import { Server, Database, FileText } from 'lucide-react'
 import { useConnectionStore } from '../../store/connectionStore'
+import { useSettingsStore } from '../../store/settingsStore'
 
 export default function DocumentModal({
   connId,
@@ -20,6 +20,7 @@ export default function DocumentModal({
   const [content, setContent] = useState('')
   const [error, setError] = useState(null)
   const { connections } = useConnectionStore()
+  const theme = useSettingsStore((state) => state.theme)
 
   const activeConnection = connections.find((c) => c.id === connId)
   const connectionName = activeConnection?.name || 'localhost:27017'
@@ -78,11 +79,11 @@ export default function DocumentModal({
         </div>
 
         {/* Editor */}
-        <div className="flex-1 relative bg-[#1e1e1e]">
+        <div className={`flex-1 relative ${theme === 'light' ? 'bg-white' : 'bg-[#1e1e1e]'}`}>
           <Editor
             height="100%"
             language="json"
-            theme="vs-dark"
+            theme={theme === 'light' ? 'vs' : 'vs-dark'}
             value={content}
             onChange={(val) => {
               setContent(val)
