@@ -1,11 +1,13 @@
 /* eslint-disable react/prop-types */
 /* eslint-disable no-unused-vars */
+/* eslint-disable react-hooks/rules-of-hooks */
 
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { Copy, Trash, Edit, Plus, FileText, CheckSquare, Square } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import { useConnectionStore } from '../../store/connectionStore'
 import { useSmartMenu } from '../../hooks/useSmartMenu'
+import { formatBsonDate } from '../../utils/bsonFormat'
 
 const DEFAULT_COLUMN_WIDTH = 180
 const MIN_COLUMN_WIDTH = 60
@@ -39,7 +41,13 @@ const formatValueForClipboard = (value) => {
 }
 
 export default function JsonTableView({ connId, data, dbName, collectionName, onRefresh }) {
-  const { menu: menuConfig, menuRef, openMenu: setMenuConfig, closeMenu, style: menuStyle } = useSmartMenu()
+  const {
+    menu: menuConfig,
+    menuRef,
+    openMenu: setMenuConfig,
+    closeMenu,
+    style: menuStyle
+  } = useSmartMenu()
 
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
@@ -118,12 +126,14 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
         typeBadge = 'OId'
         display = (
           <span className="text-accent">
-            {isExpanded ? `ObjectId("${val.$oid}")` : `ObjectId("${val.$oid.substring(0, 8)}...")`}
+            {isExpanded
+              ? `ObjectId("${val.$oid}")`
+              : `ObjectId("${String(val.$oid).substring(0, 8)}...")`}
           </span>
         )
       } else if (val.$date) {
         typeBadge = 'Date'
-        display = <span className="text-green-500">{new Date(val.$date).toISOString()}</span>
+        display = <span className="text-green-500">{formatBsonDate(val.$date)}</span>
       } else if (Array.isArray(val)) {
         typeBadge = 'Arr'
         display = <span className="italic opacity-70">Array[{val.length}]</span>
@@ -139,7 +149,9 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
 
     return (
       <div className="flex justify-between items-start gap-2 h-full min-w-0">
-        <span className={isExpanded ? 'whitespace-pre-wrap' : 'truncate flex-1 min-w-0'}>{display}</span>
+        <span className={isExpanded ? 'whitespace-pre-wrap' : 'truncate flex-1 min-w-0'}>
+          {display}
+        </span>
         {typeBadge && (
           <span className="text-[9px] px-1 rounded font-mono bg-bg-primary text-text-secondary border border-border/50 shrink-0 select-none mt-0.5">
             {typeBadge}
@@ -151,7 +163,7 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
 
   const handleContextMenu = (e, index) => {
     e.preventDefault()
-    
+
     // If the clicked row is not in current selection, select ONLY this row
     if (!selectedIndices.has(index)) {
       setSelectedIndices(new Set([index]))
@@ -169,7 +181,7 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
 
   const handleMouseDown = (e, index) => {
     if (e.button !== 0) return // Only primary click
-    
+
     setIsDragging(true)
     setDragStart(index)
     document.body.classList.add('selecting-active')
@@ -216,7 +228,10 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
     document.body.style.userSelect = 'none'
 
     const onMouseMove = (moveEvent) => {
-      const nextWidth = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + moveEvent.clientX - startX))
+      const nextWidth = Math.max(
+        MIN_COLUMN_WIDTH,
+        Math.round(startWidth + moveEvent.clientX - startX)
+      )
       setColumnWidths((prev) => ({ ...prev, [col]: nextWidth }))
     }
 
@@ -315,8 +330,8 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
     try {
       if (!window.electron) return
 
-      const docsToDelete = Array.from(selectedIndices).map(idx => data[idx])
-      const documentIds = docsToDelete.map(d => d._id)
+      const docsToDelete = Array.from(selectedIndices).map((idx) => data[idx])
+      const documentIds = docsToDelete.map((d) => d._id)
 
       const res = await window.electron.ipcRenderer.invoke('db:deleteDocuments', {
         connId,
@@ -354,7 +369,11 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
         className="text-left border-collapse whitespace-nowrap text-xs table-fixed"
         style={{
           width: Math.max(
-            40 + columns.reduce((total, col) => total + (columnWidths[col] || DEFAULT_COLUMN_WIDTH), 0),
+            40 +
+              columns.reduce(
+                (total, col) => total + (columnWidths[col] || DEFAULT_COLUMN_WIDTH),
+                0
+              ),
             1
           )
         }}
@@ -375,7 +394,9 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
                 key={col}
                 className="px-3 py-1.5 border border-border font-medium text-text-primary bg-bg-tertiary shadow-sm min-w-[60px] relative group select-none"
               >
-                <div className="truncate pr-2" title={col}>{col}</div>
+                <div className="truncate pr-2" title={col}>
+                  {col}
+                </div>
                 <div
                   onMouseDown={(e) => handleColumnResizeStart(e, col)}
                   className="absolute top-0 right-0 h-full w-2 cursor-col-resize hover:bg-accent/50 group-hover:bg-accent/20 transition-colors"
@@ -403,15 +424,20 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
               </td>
               {columns.map((col) => {
                 const isExpanded = expandedCell?.rowIndex === idx && expandedCell?.colName === col
-                const isSelectedCell = selectedCell?.rowIndex === idx && selectedCell?.colName === col
+                const isSelectedCell =
+                  selectedCell?.rowIndex === idx && selectedCell?.colName === col
                 return (
                   <td
                     key={col}
-                    onMouseDown={() => setSelectedCell({ rowIndex: idx, colName: col, value: row[col] })}
+                    onMouseDown={() =>
+                      setSelectedCell({ rowIndex: idx, colName: col, value: row[col] })
+                    }
                     onDoubleClick={() => toggleExpandCell(idx, col)}
                     className={`px-3 py-1.5 border-r border-border/50 text-text-primary cursor-cell hover:bg-white/5 transition-colors align-top ${isExpanded ? 'whitespace-normal break-words min-w-[200px]' : 'select-none'} ${isSelectedCell ? 'bg-accent/10 ring-1 ring-inset ring-accent/70' : ''}`}
                     title={
-                      !isExpanded ? 'Click to select value, double click to expand, Cmd/Ctrl+C to copy' : 'Cmd/Ctrl+C to copy value'
+                      !isExpanded
+                        ? 'Click to select value, double click to expand, Cmd/Ctrl+C to copy'
+                        : 'Cmd/Ctrl+C to copy value'
                     }
                   >
                     {renderCell(row[col], isExpanded)}

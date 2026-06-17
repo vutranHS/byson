@@ -1,9 +1,17 @@
 /* eslint-disable no-unused-vars */
 /* eslint-disable react/prop-types */
-/* eslint-disable react-hooks/set-state-in-effect */
+
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable react-hooks/rules-of-hooks */
-import { useState, createContext, useContext, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
+import {
+  useState,
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo
+} from 'react'
 import {
   ChevronRight,
   ChevronDown,
@@ -19,6 +27,7 @@ import {
 import DocumentModal from './DocumentModal'
 import { useConnectionStore } from '../../store/connectionStore'
 import { useSmartMenu } from '../../hooks/useSmartMenu'
+import { formatBsonDate } from '../../utils/bsonFormat'
 
 const TreeContext = createContext({})
 
@@ -39,7 +48,7 @@ const getMongoType = (val) => {
 
 const formatValue = (val, type) => {
   if (type === 'ObjectId') return `ObjectId("${val.$oid}")`
-  if (type === 'Date') return new Date(val.$date).toISOString()
+  if (type === 'Date') return formatBsonDate(val.$date)
   if (type === 'String') return `"${val}"`
   if (type === 'Object') return `{ ${Object.keys(val).length} fields }`
   if (type === 'Array') return `[ ${val.length} elements ]`
@@ -74,7 +83,15 @@ const shouldIgnoreCopyShortcut = (event) => {
   return Boolean(selectedText)
 }
 
-const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, rootIndex, path }) => {
+const TreeNode = ({
+  name,
+  value,
+  depth = 0,
+  indexLabel,
+  forcedExpansionSignal,
+  rootIndex,
+  path
+}) => {
   const [expanded, setExpanded] = useState(false)
   const {
     onContextMenu,
@@ -162,11 +179,14 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, r
           ) : (
             <span className="w-[18px] inline-block"></span>
           )}
-          
+
           {rootIndex !== undefined && isSelected ? (
-             <CheckSquare size={12} className="text-accent mr-1.5" />
-          ) : indexLabel && typeof indexLabel === 'number' && (
-            <span className="text-accent opacity-80 mr-1">({indexLabel})</span>
+            <CheckSquare size={12} className="text-accent mr-1.5" />
+          ) : (
+            indexLabel &&
+            typeof indexLabel === 'number' && (
+              <span className="text-accent opacity-80 mr-1">({indexLabel})</span>
+            )
           )}
 
           <span
@@ -225,7 +245,13 @@ const TreeNode = ({ name, value, depth = 0, indexLabel, forcedExpansionSignal, r
 export default function JsonTreeView({ connId, data, dbName, collectionName, onRefresh }) {
   const { connections } = useConnectionStore()
   const activeConnection = connections.find((c) => c.id === connId)
-  const { menu: menuConfig, menuRef, openMenu: setMenuConfig, closeMenu, style: menuStyle } = useSmartMenu()
+  const {
+    menu: menuConfig,
+    menuRef,
+    openMenu: setMenuConfig,
+    closeMenu,
+    style: menuStyle
+  } = useSmartMenu()
 
   // Selection state
   const [selectedIndices, setSelectedIndices] = useState(new Set())
@@ -273,17 +299,20 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
       setSelectedIndices(new Set([ctx.rootIndex]))
     }
 
-    setMenuConfig({ 
-      x: e.clientX, 
-      y: e.clientY, 
-      selectedCount: (ctx.rootIndex !== undefined && selectedIndices.has(ctx.rootIndex)) ? selectedIndices.size : 1,
-      ...ctx 
+    setMenuConfig({
+      x: e.clientX,
+      y: e.clientY,
+      selectedCount:
+        ctx.rootIndex !== undefined && selectedIndices.has(ctx.rootIndex)
+          ? selectedIndices.size
+          : 1,
+      ...ctx
     })
   }
 
   const handleMouseDown = (e, index) => {
     if (e.button !== 0) return // Only primary click
-    
+
     setIsDragging(true)
     setDragStart(index)
     document.body.classList.add('selecting-active')
@@ -400,8 +429,8 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
     try {
       if (!window.electron) return
 
-      const docsToDelete = Array.from(selectedIndices).map(idx => data[idx])
-      const documentIds = docsToDelete.map(d => d._id)
+      const docsToDelete = Array.from(selectedIndices).map((idx) => data[idx])
+      const documentIds = docsToDelete.map((d) => d._id)
 
       const res = await window.electron.ipcRenderer.invoke('db:deleteDocuments', {
         connId,
@@ -423,14 +452,16 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
   }
 
   return (
-    <TreeContext.Provider value={{
-      onContextMenu: handleContextMenu,
-      selectedIndices,
-      onMouseDown: handleMouseDown,
-      onMouseEnter: handleMouseEnter,
-      selectedField,
-      onSelectField: setSelectedField
-    }}>
+    <TreeContext.Provider
+      value={{
+        onContextMenu: handleContextMenu,
+        selectedIndices,
+        onMouseDown: handleMouseDown,
+        onMouseEnter: handleMouseEnter,
+        selectedField,
+        onSelectField: setSelectedField
+      }}
+    >
       <div
         className="overflow-auto h-full w-full bg-bg-primary relative"
         onContextMenu={(e) => e.preventDefault()}
@@ -452,7 +483,17 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
           <tbody>
             {data.map((doc, idx) => {
               const label = doc._id && doc._id.$oid ? `ObjectId("${doc._id.$oid}")` : `Document`
-              return <TreeNode key={idx} name={label} value={doc} depth={0} indexLabel={idx + 1} rootIndex={idx} path={`root:${idx}`} />
+              return (
+                <TreeNode
+                  key={idx}
+                  name={label}
+                  value={doc}
+                  depth={0}
+                  indexLabel={idx + 1}
+                  rootIndex={idx}
+                  path={`root:${idx}`}
+                />
+              )
             })}
           </tbody>
         </table>
