@@ -1,6 +1,6 @@
 {
   "name": "byson",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "A modern, cross-platform MongoDB GUI",
   "main": "./out/main/index.js",
   "author": "VuTran",
