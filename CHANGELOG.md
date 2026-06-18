@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.1.7 — Fix auto-update on macOS 26 (Tahoe) 🔁
+
+On **macOS 26 (Tahoe) and newer**, BysonDB could download an update and quit after
+**Restart Now**, but reopen on the old version. This release fixes that.
+
+### 🔧 What was wrong
+macOS 26 changed how `launchd` handles the updater helper (`ShipIt`). After the app
+asked to install the update, the helper was registered but **never actually started**,
+so the downloaded update sat staged on disk and was never applied. This is a known
+Electron/Squirrel.Mac regression on macOS 26
+([electron/electron#50866](https://github.com/electron/electron/issues/50866)).
+
+### ✅ The fix
+- When running on **macOS 26+**, BysonDB now starts the updater helper itself right after
+  you click **Restart Now** — waiting for the app to fully quit, then launching `ShipIt`
+  so the update is applied and the app relaunches on the new version.
+- Older macOS versions are unaffected and keep the normal update flow.
+- Added persistent updater logs under `~/Library/Logs/byson/BysonDB/` to make any future
+  update issues easy to diagnose.
+
+> **Already on an older BysonDB and stuck on macOS 26?** If auto-update closes the app but
+> doesn't upgrade it, download **v1.1.7** once from the
+> [Releases page](https://github.com/vutranHS/byson/releases) and replace the app in your
+> Applications folder. From v1.1.7 onward, auto-update works on macOS 26.
+
 ## v1.1.6 — Light mode polish & a white-screen crash fix 🐛
 
 A small but important maintenance release: the last few dark-only corners now follow

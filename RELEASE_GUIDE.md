@@ -22,6 +22,19 @@ sudo xattr -rd com.apple.quarantine /Applications/BysonDB.app
 ```
 *(Enter your Mac password when prompted)*
 
+### 🔄 Auto-update on macOS 26 (Tahoe)
+
+> [!IMPORTANT]
+> macOS 26 (Tahoe) introduced an OS-level change that stopped Electron apps (including
+> BysonDB) from applying downloaded auto-updates — the app would close after **Restart
+> Now** but reopen on the **same old version**. This is fixed in **BysonDB v1.1.7+**.
+>
+> If you are stuck on an older BysonDB on macOS 26, the auto-update won't carry you to
+> v1.1.7 on its own. **Download v1.1.7 (or newer) manually once** from the
+> [Releases page](https://github.com/vutranHS/byson/releases) and drag it into your
+> Applications folder, replacing the old app. From v1.1.7 onward, auto-update works
+> normally on macOS 26.
+
 ---
 
 ## 🪟 Windows Installation
