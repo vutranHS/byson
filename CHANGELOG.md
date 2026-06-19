@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.8 — Keep clone progress when switching tabs 🔁
+
+### 🐛 Fixes
+- **Fixed the Clone tab going blank when you switch away and back mid-clone.**
+  While a collection or database clone was running, switching to another tab and
+  returning showed an empty "Execution Status" with no progress or logs — the
+  running job looked lost (and a paused job could resume against the wrong target).
+  Clone state now lives outside the tab view and keeps updating in the background,
+  so progress, logs, and pause/resume survive tab switches.
+
 ## v1.1.7 — Fix auto-update on macOS 26 (Tahoe) 🔁
 
 On **macOS 26 (Tahoe) and newer**, BysonDB could download an update and quit after

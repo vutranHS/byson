@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import {
   RefreshCw,
   Play,
@@ -12,67 +12,40 @@ import {
 } from 'lucide-react'
 import { useConnectionStore } from '../../store/connectionStore'
 import { useSettingsStore } from '../../store/settingsStore'
+import { useCloneStore } from '../../store/cloneStore'
 
 export default function CloneTab({ tab }) {
   const { connections } = useConnectionStore()
   const isLight = useSettingsStore((state) => state.theme) === 'light'
 
-  // Target Configuration
-  const [targetConnId, setTargetConnId] = useState(tab.connId)
-  const [targetDb, setTargetDb] = useState(tab.dbName)
-  const [targetCol, setTargetCol] = useState(tab.collectionName + '_sync')
-
-  // Options
-  const [options, setOptions] = useState({
-    createIfNotExists: true,
-    dropTarget: false,
-    batchSize: 5000,
-    parallelThreads: 5
-  })
-
-  // Sync State
-  const [status, setStatus] = useState('idle') // idle, running, paused, completed, error
-  const [progress, setProgress] = useState(null)
-  const [logs, setLogs] = useState([])
-  const [operationId, setOperationId] = useState(null)
-
-  const addLog = (msg, type = 'info') => {
-    setLogs((prev) => [...prev, { time: new Date().toLocaleTimeString(), msg, type }])
-  }
+  // Clone state is persisted per-tab in the store so it survives tab switches
+  // (inactive tabs are unmounted). A single global listener keeps it updating
+  // even while this tab is not mounted — see cloneStore.js.
+  const ensureJob = useCloneStore((s) => s.ensureJob)
+  const patchJob = useCloneStore((s) => s.patchJob)
+  const addLogToStore = useCloneStore((s) => s.addLog)
+  const startJobInStore = useCloneStore((s) => s.startJob)
+  const job = useCloneStore((s) => s.jobs[tab.id])
 
   useEffect(() => {
-    if (!window.electron) return
+    ensureJob(tab.id, {
+      targetConnId: tab.connId,
+      targetDb: tab.dbName,
+      targetCol: tab.collectionName ? tab.collectionName + '_sync' : ''
+    })
+  }, [tab.id, tab.connId, tab.dbName, tab.collectionName, ensureJob])
 
-    const handleProgress = (event, data) => {
-      if (data.operationId !== operationId) return
+  // First render before ensureJob's effect runs — nothing to show yet.
+  if (!job) return null
 
-      if (data.phase === 'error') {
-        setStatus('error')
-        addLog(`Error: ${data.error}`, 'error')
-      } else if (data.phase === 'abort' || data.stopped) {
-        setStatus('idle')
-        addLog('Clone aborted manually.', 'warning')
-      } else if (data.phase === 'pause' || data.paused) {
-        setStatus('paused')
-        addLog('Clone paused.', 'warning')
-      } else if (data.completed) {
-        setStatus('completed')
-        addLog('Clone completed successfully!', 'success')
-      } else {
-        if (data.status) {
-          addLog(data.status, 'info')
-        }
-        if (data.processed !== undefined && data.total !== undefined) {
-          setProgress({ processed: data.processed, total: data.total })
-        }
-      }
-    }
+  const { status, progress, logs, operationId, targetConnId, targetDb, targetCol, options } = job
 
-    const unsubscribe = window.electron.ipcRenderer.on('db:syncProgress', handleProgress)
-    return () => {
-      unsubscribe()
-    }
-  }, [operationId])
+  const addLog = (msg, type = 'info') => addLogToStore(tab.id, msg, type)
+  const setStatus = (s) => patchJob(tab.id, { status: s })
+  const setTargetConnId = (v) => patchJob(tab.id, { targetConnId: v })
+  const setTargetDb = (v) => patchJob(tab.id, { targetDb: v })
+  const setTargetCol = (v) => patchJob(tab.id, { targetCol: v })
+  const setOptions = (v) => patchJob(tab.id, { options: v })
 
   const handleStart = async () => {
     if (!targetConnId || !targetDb || (tab.collectionName && !targetCol)) {
@@ -90,11 +63,7 @@ export default function CloneTab({ tab }) {
     }
 
     const newOpId = crypto.randomUUID()
-    setOperationId(newOpId)
-    setStatus('running')
-    setProgress(null)
-    setLogs([])
-    addLog(`Starting clone job: ${newOpId}`, 'info')
+    startJobInStore(tab.id, newOpId)
 
     try {
       const res = await window.electron.ipcRenderer.invoke('db:startSync', {
