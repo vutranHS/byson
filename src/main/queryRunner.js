@@ -184,8 +184,8 @@ export async function executeMongoshQuery(client, dbName, queryString, options =
 
           return {
             toArray: () => {}, // Mock to prevent error if user types .toArray()
-            explain: () => {
-              operation = () => collection.aggregate(pipeline, queryOptions).explain()
+            explain: (verbosity) => {
+              operation = () => collection.aggregate(pipeline, queryOptions).explain(verbosity)
               return {}
             }
           }

@@ -12,6 +12,7 @@ import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import JsonTreeView from '../QueryTab/JsonTreeView'
 import JsonTableView from '../QueryTab/JsonTableView'
 import ErrorBoundary from '../ErrorBoundary'
+import ExplainPlanView from '../ExplainPlanView'
 import {
   Plus,
   Play,
@@ -32,7 +33,9 @@ import {
   AlertTriangle,
   Check,
   Search,
-  Zap
+  Zap,
+  Gauge,
+  Lightbulb
 } from 'lucide-react'
 
 // --- Monaco worker bootstrap (mirrors QueryTab so this tab is self-contained) ---
@@ -252,6 +255,38 @@ const buildCode = (collectionName, stages) => {
   return `db.getCollection('${collectionName}').aggregate([\n${inner}\n])`
 }
 
+// Static performance hints derived from the pipeline shape (no DB round-trip).
+const computePipelineHints = (enabled) => {
+  const hints = []
+  const idxOf = (op) => enabled.findIndex((s) => s.op === op)
+  const matchIdx = idxOf('$match')
+  const sortIdx = idxOf('$sort')
+  const groupIdx = idxOf('$group')
+
+  if (matchIdx > 0) {
+    hints.push('Move $match earlier so the pipeline filters documents before later stages run.')
+  }
+
+  const fields = []
+  if (matchIdx !== -1) {
+    const o = looseParse(enabled[matchIdx].body)
+    if (o) Object.keys(o).forEach((k) => !k.startsWith('$') && fields.push(k))
+  }
+  if (sortIdx !== -1) {
+    const o = looseParse(enabled[sortIdx].body)
+    if (o) Object.keys(o).forEach((k) => !fields.includes(k) && fields.push(k))
+  }
+  if (fields.length) {
+    hints.push(`Consider an index on: ${fields.join(', ')} (used by $match/$sort).`)
+  }
+
+  if (sortIdx !== -1 && groupIdx !== -1 && sortIdx > groupIdx) {
+    hints.push('A $sort placed after $group cannot use an index; sort earlier when possible.')
+  }
+
+  return hints
+}
+
 export default function AggregationTab({ tab }) {
   const theme = useSettingsStore((s) => s.theme)
   const defaultPageSize = useSettingsStore((s) => s.defaultPageSize)
@@ -315,6 +350,8 @@ export default function AggregationTab({ tab }) {
     upToOp: null
   })
 
+  const [explain, setExplain] = useState({ loading: false, data: null, error: null })
+
   // Drag state: { type: 'palette'|'card', op?, index? }
   const dragRef = useRef(null)
   const [dragOverIndex, setDragOverIndex] = useState(null)
@@ -326,6 +363,7 @@ export default function AggregationTab({ tab }) {
   }, [])
 
   const enabledStages = useMemo(() => stages.filter((s) => s.enabled), [stages])
+  const pipelineHints = useMemo(() => computePipelineHints(enabledStages), [enabledStages])
 
   const fullCode = useMemo(
     () => buildCode(tab.collectionName, enabledStages),
@@ -497,6 +535,37 @@ export default function AggregationTab({ tab }) {
     })
   }, [openTab, fullCode, tab])
 
+  // ---- Explain -------------------------------------------------------------
+  const runExplain = useCallback(async () => {
+    let sliced = stages.filter((s) => s.enabled)
+    while (sliced.length && WRITE_STAGES.has(sliced[sliced.length - 1].op)) {
+      sliced = sliced.slice(0, -1)
+    }
+    setActiveView('explain')
+    if (!sliced.length) {
+      setExplain({ loading: false, data: null, error: 'No enabled non-write stages to explain.' })
+      return
+    }
+    setExplain({ loading: true, data: null, error: null })
+    const code = `${buildCode(tab.collectionName, sliced)}.explain('executionStats')`
+    try {
+      const res = await window.electron.ipcRenderer.invoke('db:runQuery', {
+        connId: tab.connId,
+        dbName: tab.dbName,
+        query: code,
+        options: { skip: 0, limit: 1 }
+      })
+      if (res.ok) {
+        setExplain({ loading: false, data: res.data, error: null })
+      } else {
+        setExplain({ loading: false, data: null, error: res.error })
+        addLog(`Explain error: ${res.error}`, 'error')
+      }
+    } catch (err) {
+      setExplain({ loading: false, data: null, error: err.message })
+    }
+  }, [stages, tab.collectionName, tab.connId, tab.dbName, addLog])
+
   // ---- Palette (with search) ----------------------------------------------
   const filteredCatalog = useMemo(() => {
     const q = paletteQuery.trim().toLowerCase()
@@ -531,6 +600,13 @@ export default function AggregationTab({ tab }) {
             title="Run full pipeline"
           >
             <Play size={12} /> Run
+          </button>
+          <button
+            onClick={runExplain}
+            className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-hover text-xs"
+            title="Explain the pipeline (execution plan + index usage)"
+          >
+            <Gauge size={12} /> Explain
           </button>
           <label className="flex items-center gap-1 text-[11px] text-text-secondary cursor-pointer select-none px-1">
             <input
@@ -712,6 +788,12 @@ export default function AggregationTab({ tab }) {
             >
               <Code2 size={12} /> Code
             </button>
+            <button
+              onClick={() => setActiveView('explain')}
+              className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${activeView === 'explain' ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:text-text-primary'}`}
+            >
+              <Gauge size={12} /> Explain
+            </button>
 
             {activeView === 'preview' && (
               <div className="ml-auto flex items-center gap-1">
@@ -767,6 +849,39 @@ export default function AggregationTab({ tab }) {
                   wordWrap: 'on'
                 }}
               />
+            ) : activeView === 'explain' ? (
+              <div className="h-full flex flex-col min-h-0">
+                {pipelineHints.length > 0 && (
+                  <div className="shrink-0 border-b border-border p-2 flex flex-col gap-1">
+                    {pipelineHints.map((h, i) => (
+                      <div
+                        key={i}
+                        className="flex items-start gap-1.5 text-[11px] text-text-secondary"
+                      >
+                        <Lightbulb size={12} className="text-yellow-500 mt-0.5 shrink-0" />
+                        <span>{h}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex-1 min-h-0">
+                  {explain.loading ? (
+                    <div className="h-full flex items-center justify-center text-text-secondary text-xs gap-1">
+                      <Loader2 size={12} className="animate-spin" /> explaining…
+                    </div>
+                  ) : explain.error ? (
+                    <div className="p-3 text-xs text-red-400 font-mono whitespace-pre-wrap">
+                      {explain.error}
+                    </div>
+                  ) : explain.data ? (
+                    <ExplainPlanView explain={explain.data} isLight={theme === 'light'} />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-text-secondary text-xs">
+                      Click Explain to analyze the pipeline.
+                    </div>
+                  )}
+                </div>
+              </div>
             ) : preview.warning && !preview.data?.length ? (
               <div className="p-3 text-xs text-orange-400">{preview.warning}</div>
             ) : preview.error ? (
