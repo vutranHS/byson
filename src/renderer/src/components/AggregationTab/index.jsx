@@ -167,6 +167,44 @@ const looseParse = (str) => {
   }
 }
 
+// ---- Form Mode -------------------------------------------------------------
+// Stages whose body can be edited with a structured form instead of raw code.
+const FORM_OPS = new Set(['$match', '$project', '$sort', '$limit', '$skip', '$sample', '$unwind'])
+
+// Can this body be represented by the form for `op`? Complex shapes fall back to
+// Code mode (e.g. ObjectId()/ISODate() in $match break looseParse and return null).
+const canUseForm = (op, body) => {
+  if (!FORM_OPS.has(op)) return false
+  const t = String(body ?? '').trim()
+  if (op === '$limit' || op === '$skip') return t === '' || /^\d+$/.test(t)
+  if (op === '$unwind') {
+    if (t === '' || /^["']/.test(t)) return true
+    const o = looseParse(body)
+    return !!o && typeof o === 'object' && !Array.isArray(o)
+  }
+  if (t === '') return true
+  const o = looseParse(body)
+  return !!o && typeof o === 'object' && !Array.isArray(o)
+}
+
+// Ensure an $unwind field path is prefixed with `$`.
+const normPath = (p) => {
+  const t = String(p || '').trim()
+  if (!t) return ''
+  return t.startsWith('$') ? t : '$' + t
+}
+
+// Serialize key/value rows back into an object-literal body string.
+const serializeRows = (op, rows) => {
+  const valid = rows.filter((r) => String(r.key).trim())
+  if (!valid.length) return '{\n  \n}'
+  const lines = valid.map((r) => {
+    const v = op === '$match' ? (String(r.value).trim() === '' ? '""' : r.value) : String(r.value)
+    return `  ${JSON.stringify(r.key)}: ${v}`
+  })
+  return `{\n${lines.join(',\n')}\n}`
+}
+
 // Build the `db.coll.aggregate([...])` string for a list of stages.
 const buildCode = (collectionName, stages) => {
   if (!stages.length) return `db.getCollection('${collectionName}').aggregate([])`
@@ -725,6 +763,190 @@ export default function AggregationTab({ tab }) {
 }
 
 // ----------------------------------------------------------------------------
+// Form Mode editors (simple stages)
+// ----------------------------------------------------------------------------
+const fieldInput =
+  'bg-bg-primary border border-border rounded px-2 py-1 text-xs focus:outline-none focus:border-accent'
+
+// Object key/value rows for $sort, $project, $match.
+function ObjectRowsForm({ op, body, onBodyChange }) {
+  const [rows, setRows] = useState(() => {
+    const obj = looseParse(body) || {}
+    return Object.entries(obj).map(([key, value]) => ({
+      key,
+      value: op === '$match' ? JSON.stringify(value) : value
+    }))
+  })
+
+  const push = (next) => {
+    setRows(next)
+    onBodyChange(serializeRows(op, next))
+  }
+  const setRow = (i, patch) => push(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  const removeRow = (i) => push(rows.filter((_, idx) => idx !== i))
+  const addRow = () =>
+    push([...rows, { key: '', value: op === '$match' ? '' : op === '$project' ? 1 : 1 }])
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {rows.length === 0 && (
+        <div className="text-[11px] text-text-secondary italic">No fields yet.</div>
+      )}
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <input
+            className={`${fieldInput} flex-1 font-mono`}
+            placeholder="field"
+            value={r.key}
+            onChange={(e) => setRow(i, { key: e.target.value })}
+          />
+          {op === '$match' ? (
+            <input
+              className={`${fieldInput} flex-1 font-mono`}
+              placeholder='value (e.g. "abc", 42, true)'
+              value={r.value}
+              onChange={(e) => setRow(i, { value: e.target.value })}
+            />
+          ) : (
+            <select
+              className={`${fieldInput} w-32`}
+              value={r.value}
+              onChange={(e) => setRow(i, { value: Number(e.target.value) })}
+            >
+              {op === '$sort' ? (
+                <>
+                  <option value={1}>Ascending (1)</option>
+                  <option value={-1}>Descending (-1)</option>
+                </>
+              ) : (
+                <>
+                  <option value={1}>Include (1)</option>
+                  <option value={0}>Exclude (0)</option>
+                </>
+              )}
+            </select>
+          )}
+          <button
+            onClick={() => removeRow(i)}
+            title="Remove field"
+            className="p-1 rounded hover:bg-bg-hover text-text-secondary hover:text-red-400"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={addRow}
+        className="flex items-center gap-1 text-[11px] text-accent hover:underline w-fit mt-0.5"
+      >
+        <Plus size={12} /> Add field
+      </button>
+    </div>
+  )
+}
+
+function NumberForm({ body, onBodyChange, label }) {
+  const [val, setVal] = useState(() => String(body ?? '').trim().replace(/[^\d]/g, ''))
+  const change = (v) => {
+    const clean = v.replace(/[^\d]/g, '')
+    setVal(clean)
+    onBodyChange(clean === '' ? '0' : clean)
+  }
+  return (
+    <label className="flex items-center gap-2 text-xs text-text-secondary">
+      {label}
+      <input
+        type="number"
+        min="0"
+        className={`${fieldInput} w-28`}
+        value={val}
+        onChange={(e) => change(e.target.value)}
+      />
+    </label>
+  )
+}
+
+function SampleForm({ body, onBodyChange }) {
+  const [size, setSize] = useState(() => {
+    const obj = looseParse(body) || {}
+    return obj.size != null ? String(obj.size) : ''
+  })
+  const change = (v) => {
+    const clean = v.replace(/[^\d]/g, '')
+    setSize(clean)
+    onBodyChange(`{ size: ${clean === '' ? 0 : clean} }`)
+  }
+  return (
+    <label className="flex items-center gap-2 text-xs text-text-secondary">
+      Sample size
+      <input
+        type="number"
+        min="0"
+        className={`${fieldInput} w-28`}
+        value={size}
+        onChange={(e) => change(e.target.value)}
+      />
+    </label>
+  )
+}
+
+function UnwindForm({ body, onBodyChange }) {
+  const [state, setState] = useState(() => {
+    const t = String(body || '').trim()
+    if (t === '' || /^["']/.test(t)) {
+      return { path: t.replace(/^["']|["']$/g, ''), preserve: false }
+    }
+    const obj = looseParse(body) || {}
+    return { path: String(obj.path || ''), preserve: !!obj.preserveNullAndEmptyArrays }
+  })
+
+  const push = (next) => {
+    setState(next)
+    const path = normPath(next.path)
+    onBodyChange(
+      next.preserve
+        ? `{ path: ${JSON.stringify(path)}, preserveNullAndEmptyArrays: true }`
+        : JSON.stringify(path)
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="flex items-center gap-2 text-xs text-text-secondary">
+        Array field
+        <input
+          className={`${fieldInput} flex-1 font-mono`}
+          placeholder="$arrayField"
+          value={state.path}
+          onChange={(e) => push({ ...state, path: e.target.value })}
+        />
+      </label>
+      <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer w-fit">
+        <input
+          type="checkbox"
+          className="accent-accent"
+          checked={state.preserve}
+          onChange={(e) => push({ ...state, preserve: e.target.checked })}
+        />
+        Preserve null and empty arrays
+      </label>
+    </div>
+  )
+}
+
+function StageForm({ op, body, onBodyChange }) {
+  if (op === '$sort' || op === '$project' || op === '$match') {
+    return <ObjectRowsForm op={op} body={body} onBodyChange={onBodyChange} />
+  }
+  if (op === '$limit' || op === '$skip') {
+    return <NumberForm body={body} onBodyChange={onBodyChange} label="Count" />
+  }
+  if (op === '$sample') return <SampleForm body={body} onBodyChange={onBodyChange} />
+  if (op === '$unwind') return <UnwindForm body={body} onBodyChange={onBodyChange} />
+  return null
+}
+
+// ----------------------------------------------------------------------------
 // Stage card
 // ----------------------------------------------------------------------------
 function StageCard({
@@ -748,6 +970,11 @@ function StageCard({
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 64)
+
+  const formCapable = FORM_OPS.has(stage.op)
+  const [editMode, setEditMode] = useState(() => (formCapable ? 'form' : 'code'))
+  const formAvailable = canUseForm(stage.op, stage.body)
+  const effectiveMode = editMode === 'form' && formAvailable ? 'form' : 'code'
 
   return (
     <div
@@ -814,25 +1041,61 @@ function StageCard({
               {meta.desc}
             </div>
           )}
-          <div className="h-40">
-            <Editor
-              height="100%"
-              language="javascript"
-              theme={monacoTheme}
-              value={stage.body}
-              onChange={(v) => onBodyChange(v ?? '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 12,
-                lineNumbers: 'off',
-                scrollBeyondLastLine: false,
-                folding: false,
-                wordWrap: 'on',
-                automaticLayout: true,
-                padding: { top: 8, bottom: 8 }
-              }}
-            />
-          </div>
+          {formCapable && (
+            <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-bg-primary/40">
+              <button
+                onClick={() => setEditMode('form')}
+                disabled={!formAvailable}
+                className={`px-2 py-0.5 rounded text-[11px] ${
+                  effectiveMode === 'form'
+                    ? 'bg-bg-hover text-accent'
+                    : 'text-text-secondary hover:text-text-primary'
+                } ${!formAvailable ? 'opacity-40 cursor-not-allowed' : ''}`}
+              >
+                Form
+              </button>
+              <button
+                onClick={() => setEditMode('code')}
+                className={`px-2 py-0.5 rounded text-[11px] ${
+                  effectiveMode === 'code'
+                    ? 'bg-bg-hover text-accent'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                Code
+              </button>
+              {editMode === 'form' && !formAvailable && (
+                <span className="text-[10px] text-text-secondary ml-1">
+                  advanced (edit in Code)
+                </span>
+              )}
+            </div>
+          )}
+          {effectiveMode === 'form' ? (
+            <div className="p-3">
+              <StageForm op={stage.op} body={stage.body} onBodyChange={onBodyChange} />
+            </div>
+          ) : (
+            <div className="h-40">
+              <Editor
+                height="100%"
+                language="javascript"
+                theme={monacoTheme}
+                value={stage.body}
+                onChange={(v) => onBodyChange(v ?? '')}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 12,
+                  lineNumbers: 'off',
+                  scrollBeyondLastLine: false,
+                  folding: false,
+                  wordWrap: 'on',
+                  automaticLayout: true,
+                  padding: { top: 8, bottom: 8 }
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
