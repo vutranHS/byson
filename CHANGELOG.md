@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.1.9 — Aggregation Pipeline Builder 🧱
+
+A new visual way to build, preview, and tune MongoDB aggregation pipelines.
+
+### ✨ New: Aggregation Pipeline Builder
+Open it from the collection menu in the sidebar (**Aggregate...**).
+
+- **Build visually.** Drag stages from a searchable palette (or click to add),
+  reorder by drag handle, enable/disable, and duplicate stages. Every stage has
+  its own editor.
+- **Form or Code per stage.** Simple stages (`$match`, `$project`, `$sort`,
+  `$limit`, `$skip`, `$sample`, `$unwind`) offer a structured form; anything more
+  advanced falls back to a code editor.
+- **Live preview.** See results up to any stage as you build, with Tree / Table /
+  JSON views. Write stages (`$out` / `$merge`) are skipped in preview and only run
+  on demand.
+- **Explain plan.** One click shows the execution plan (index usage, COLLSCAN
+  warnings, docs examined vs returned) plus static hints (move `$match` earlier,
+  suggest indexes for `$match` / `$sort`).
+- **Collection autocomplete** for `$lookup`, `$graphLookup`, `$unionWith`, `$out`,
+  and `$merge`.
+- **Save & reuse pipelines**, export results to JSON, copy the generated code, or
+  open it in a Query tab.
+- Pipelines and view preferences are remembered across tab switches and restarts.
+
 ## v1.1.8 — Keep clone progress when switching tabs 🔁
 
 ### 🐛 Fixes

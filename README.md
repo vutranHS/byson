@@ -66,6 +66,7 @@ Robo3T was the go-to MongoDB GUI for hundreds of thousands of developers — lig
   - **Table View**: High-performance grid for large datasets.
   - **JSON View**: Formatted syntax-highlighted output.
 - **⚡ Advanced Querying**: Professional editor powered by Monaco Editor.
+- **🧱 Aggregation Pipeline Builder**: Visually build pipelines stage by stage with drag/drop, form or code editing, live per-stage preview, an execution-plan explainer, and saved pipelines.
 - **📊 APM Profiler**: Real-time query performance monitoring.
 - **📂 Multi-Connection**: Manage and switch between multiple local and remote instances seamlessly.
 
@@ -115,7 +116,9 @@ See our full roadmap and vote on upcoming features in [FEATURES_REQUEST.md](../F
 
 **Already shipped in v1.0.8:** Workspace Sessions, Global Query History, Tab IDE Menus, SSH Auto-Reconnect, Export/Import Engine (JSON/CSV/BSON/XLSX), Monaco Editor.
 
-**Coming soon:** Aggregation Pipeline Builder, Index Manager, Schema Analyzer, Query Explain Plan viewer.
+**Recently shipped:** Aggregation Pipeline Builder (with Explain plan viewer), Index Manager.
+
+**Coming soon:** Schema Analyzer.
 
 ## 🤝 Contributing
 

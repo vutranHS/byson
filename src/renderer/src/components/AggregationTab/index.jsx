@@ -58,12 +58,12 @@ try {
     noSemanticValidation: true,
     noSyntaxValidation: true
   })
-} catch (e) {
+} catch {
   /* monaco may not be ready in some envs; safe to ignore */
 }
 
 // ----------------------------------------------------------------------------
-// Stage catalogue — grouped, each with a sensible starter snippet + one-liner.
+// Stage catalogue, grouped, each with a sensible starter snippet + one-liner.
 // ----------------------------------------------------------------------------
 const STAGE_CATALOG = [
   {
@@ -189,7 +189,7 @@ const looseParse = (str) => {
   if (str == null || !String(str).trim()) return {}
   try {
     return JSON.parse(str)
-  } catch (e) {
+  } catch {
     /* fallthrough */
   }
   try {
@@ -197,7 +197,7 @@ const looseParse = (str) => {
       .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
       .replace(/'/g, '"')
     return JSON.parse(fixed)
-  } catch (e) {
+  } catch {
     return null
   }
 }
@@ -293,11 +293,9 @@ const computePipelineHints = (enabled) => {
 
 export default function AggregationTab({ tab }) {
   const theme = useSettingsStore((s) => s.theme)
-  const defaultPageSize = useSettingsStore((s) => s.defaultPageSize)
   const openTab = useTabStore((s) => s.openTab)
   const setTabPipeline = useTabStore((s) => s.setTabPipeline)
   const setTabAggView = useTabStore((s) => s.setTabAggView)
-  const connections = useConnectionStore((s) => s.connections)
   const dbCollections = useConnectionStore((s) => s.dbCollections)
   const addLog = useLogStore((s) => s.addLog)
   const savedPipelines = usePipelineStore((s) => s.records)

@@ -91,7 +91,7 @@ export default function ExplainPlanView({ explain, isLight }) {
   const { qp, es, planList, aggStages } = parsed
   const hasCollScan = planList.some((p) => p.stage === 'COLLSCAN')
 
-  // Could not recognise the shape — show raw JSON so nothing is hidden.
+  // Could not recognise the shape, so show raw JSON and hide nothing.
   if (!qp && !es) {
     return (
       <pre className="p-3 text-xs font-mono whitespace-pre-wrap overflow-auto h-full">
