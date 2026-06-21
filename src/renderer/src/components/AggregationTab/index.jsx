@@ -296,6 +296,7 @@ export default function AggregationTab({ tab }) {
   const defaultPageSize = useSettingsStore((s) => s.defaultPageSize)
   const openTab = useTabStore((s) => s.openTab)
   const setTabPipeline = useTabStore((s) => s.setTabPipeline)
+  const setTabAggView = useTabStore((s) => s.setTabAggView)
   const connections = useConnectionStore((s) => s.connections)
   const dbCollections = useConnectionStore((s) => s.dbCollections)
   const addLog = useLogStore((s) => s.addLog)
@@ -344,11 +345,13 @@ export default function AggregationTab({ tab }) {
         }))
       : [newStage('$match')]
   )
+  const savedView = tab.aggView || {}
   const [expandedId, setExpandedId] = useState(() => null)
-  const [activeView, setActiveView] = useState('preview') // 'preview' | 'code'
-  const [viewMode, setViewMode] = useState('tree') // 'tree' | 'table' | 'json'
-  const [previewLimit, setPreviewLimit] = useState(20)
-  const [autoPreview, setAutoPreview] = useState(true)
+  const [activeView, setActiveView] = useState('preview') // 'preview' | 'code' | 'explain'
+  const [viewMode, setViewMode] = useState(savedView.viewMode || 'tree') // 'tree' | 'table' | 'json'
+  const [previewLimit, setPreviewLimit] = useState(savedView.previewLimit ?? 20)
+  const [autoPreview, setAutoPreview] = useState(savedView.autoPreview ?? true)
+  const [resultsWidth, setResultsWidth] = useState(savedView.resultsWidth ?? 42)
   const [paletteQuery, setPaletteQuery] = useState('')
   const [copied, setCopied] = useState(false)
   const [savedOpen, setSavedOpen] = useState(false)
@@ -368,6 +371,35 @@ export default function AggregationTab({ tab }) {
   // Drag state: { type: 'palette'|'card', op?, index? }
   const dragRef = useRef(null)
   const [dragOverIndex, setDragOverIndex] = useState(null)
+
+  // Persist view preferences (survives tab switches and workspace reload).
+  useEffect(() => {
+    setTabAggView(tab.id, { viewMode, previewLimit, autoPreview, resultsWidth })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, previewLimit, autoPreview, resultsWidth])
+
+  // Draggable resizer between the builder and the results panel.
+  const panesRef = useRef(null)
+  const onResizeStart = useCallback((e) => {
+    e.preventDefault()
+    const container = panesRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev) => {
+      const pct = ((rect.right - ev.clientX) / rect.width) * 100
+      setResultsWidth(Math.min(70, Math.max(25, pct)))
+    }
+    const onUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [])
 
   // expand first stage on mount
   useEffect(() => {
@@ -429,6 +461,17 @@ export default function AggregationTab({ tab }) {
       const [moved] = next.splice(from, 1)
       const insertAt = from < to ? to - 1 : to
       next.splice(insertAt, 0, moved)
+      return next
+    })
+  }, [])
+
+  const duplicateStage = useCallback((id) => {
+    setStages((prev) => {
+      const idx = prev.findIndex((s) => s.id === id)
+      if (idx === -1) return prev
+      const copy = { ...prev[idx], id: `stg-${Date.now()}-${stageSeq++}` }
+      const next = [...prev]
+      next.splice(idx + 1, 0, copy)
       return next
     })
   }, [])
@@ -530,6 +573,19 @@ export default function AggregationTab({ tab }) {
     return () => previewTimer.current && clearTimeout(previewTimer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stages, autoPreview, previewLimit])
+
+  // Cmd/Ctrl+Enter runs the full pipeline.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        setActiveView('preview')
+        runPreviewUpTo(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [runPreviewUpTo])
 
   const copyCode = useCallback(() => {
     navigator.clipboard?.writeText(fullCode)
@@ -769,7 +825,7 @@ export default function AggregationTab({ tab }) {
         </div>
       </div>
 
-      <div className="flex-1 flex min-h-0">
+      <div ref={panesRef} className="flex-1 flex min-h-0">
         {/* Stage palette */}
         <div className="w-52 shrink-0 border-r border-border bg-bg-secondary flex flex-col">
           <div className="p-2 border-b border-border">
@@ -869,6 +925,7 @@ export default function AggregationTab({ tab }) {
                 onToggleExpand={() => setExpandedId((id) => (id === stage.id ? null : stage.id))}
                 onToggleEnabled={() => toggleEnabled(stage.id)}
                 onRemove={() => removeStage(stage.id)}
+                onDuplicate={() => duplicateStage(stage.id)}
                 onBodyChange={(v) => updateBody(stage.id, v)}
                 onPreviewHere={() => {
                   setActiveView('preview')
@@ -908,8 +965,20 @@ export default function AggregationTab({ tab }) {
           )}
         </div>
 
+        {/* Resizer */}
+        <div
+          onMouseDown={onResizeStart}
+          className="w-[6px] shrink-0 bg-bg-tertiary hover:bg-accent/40 cursor-col-resize flex items-center justify-center transition-colors"
+          title="Drag to resize"
+        >
+          <GripVertical size={12} className="text-text-secondary" />
+        </div>
+
         {/* Results / code panel */}
-        <div className="w-[42%] shrink-0 border-l border-border flex flex-col bg-bg-secondary min-w-0">
+        <div
+          style={{ width: `${resultsWidth}%` }}
+          className="shrink-0 border-l border-border flex flex-col bg-bg-secondary min-w-0"
+        >
           <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border shrink-0">
             <button
               onClick={() => setActiveView('preview')}
@@ -1267,6 +1336,7 @@ function StageCard({
   onToggleExpand,
   onToggleEnabled,
   onRemove,
+  onDuplicate,
   onBodyChange,
   onPreviewHere,
   onDragStartCard,
@@ -1339,6 +1409,13 @@ function StageCard({
           className="p-1 rounded hover:bg-bg-hover text-text-secondary hover:text-text-primary"
         >
           {stage.enabled ? <Eye size={12} /> : <EyeOff size={12} />}
+        </button>
+        <button
+          onClick={onDuplicate}
+          title="Duplicate stage"
+          className="p-1 rounded hover:bg-bg-hover text-text-secondary hover:text-text-primary"
+        >
+          <Copy size={12} />
         </button>
         <button
           onClick={onRemove}

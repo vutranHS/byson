@@ -18,11 +18,12 @@ export const useTabStore = create((set, get) => ({
     const newId = `tab-${Date.now()}`
 
     // Auto-generate query based on title/collection
-    const defaultQuery = tabInfo.type === 'indexes'
-      ? ''
-      : tabInfo.collectionName
-        ? `db.getCollection('${tabInfo.collectionName}').find({})`
-        : `// New Shell`
+    const defaultQuery =
+      tabInfo.type === 'indexes'
+        ? ''
+        : tabInfo.collectionName
+          ? `db.getCollection('${tabInfo.collectionName}').find({})`
+          : `// New Shell`
 
     const defaultPageSize = useSettingsStore.getState().defaultPageSize || 50
 
@@ -49,7 +50,9 @@ export const useTabStore = create((set, get) => ({
     // Auto-run query for collections or refresh indexes
     if (tabInfo.collectionName) {
       if (tabInfo.type === 'indexes') {
-        useConnectionStore.getState().refreshIndexes(tabInfo.connId, tabInfo.dbName, tabInfo.collectionName)
+        useConnectionStore
+          .getState()
+          .refreshIndexes(tabInfo.connId, tabInfo.dbName, tabInfo.collectionName)
       } else if (tabInfo.type !== 'export' && tabInfo.type !== 'import' && !tabInfo.skipAutoRun) {
         // Don't auto-run for export/import tabs as they have their own UI
         setTimeout(() => get().executeTabQuery(newId), 50)
@@ -88,9 +91,9 @@ export const useTabStore = create((set, get) => ({
     if (idx === -1) return
     const newTabs = tabs.slice(0, idx + 1)
     const isTargetStillActive = newTabs.some((t) => t.id === activeTabId)
-    set({ 
-      tabs: newTabs, 
-      activeTabId: isTargetStillActive ? activeTabId : id 
+    set({
+      tabs: newTabs,
+      activeTabId: isTargetStillActive ? activeTabId : id
     })
   },
 
@@ -98,14 +101,14 @@ export const useTabStore = create((set, get) => ({
     const { tabs } = get()
     const tabToClone = tabs.find((t) => t.id === id)
     if (!tabToClone) return
-    
+
     const newId = `tab-${Date.now()}`
     const newTab = { ...tabToClone, id: newId }
     // Strip results and errors from clone
     delete newTab.results
     delete newTab.error
     delete newTab.execTime
-    
+
     set({
       tabs: [...tabs, newTab],
       activeTabId: newId
@@ -114,16 +117,16 @@ export const useTabStore = create((set, get) => ({
 
   restoreWorkspace: (workspaceTabs) => {
     if (!workspaceTabs || !workspaceTabs.length) return
-    
+
     // Add new unique IDs to avoid any React key collisions on restore
-    const restoredTabs = workspaceTabs.map(t => ({
+    const restoredTabs = workspaceTabs.map((t) => ({
       ...t,
       id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       loading: false,
       results: null,
       error: null
     }))
-    
+
     set({
       tabs: restoredTabs,
       activeTabId: restoredTabs[0].id // Focus first tab
@@ -147,6 +150,15 @@ export const useTabStore = create((set, get) => ({
     const { tabs } = get()
     set({
       tabs: tabs.map((t) => (t.id === id ? { ...t, query: newQuery, pipeline } : t))
+    })
+  },
+
+  // Persist an aggregation tab's view preferences (result view mode, preview
+  // limit, auto-preview, results panel width) so they survive tab switches.
+  setTabAggView: (id, aggView) => {
+    const { tabs } = get()
+    set({
+      tabs: tabs.map((t) => (t.id === id ? { ...t, aggView: { ...t.aggView, ...aggView } } : t))
     })
   },
 
@@ -207,10 +219,10 @@ export const useTabStore = create((set, get) => ({
 
       if (result.ok) {
         useLogStore.getState().addLog(`Query completed in ${result.execTime}ms`, 'success')
-        
+
         // Ensure sidebar mirrors the active query
         useConnectionStore.getState().expandToCollection(connId, tab.dbName)
-        
+
         set({
           tabs: get().tabs.map((t) =>
             t.id === id
