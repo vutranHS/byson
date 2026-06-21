@@ -242,7 +242,7 @@ const TreeNode = ({
   )
 }
 
-export default function JsonTreeView({ connId, data, dbName, collectionName, onRefresh }) {
+export default function JsonTreeView({ connId, data, dbName, collectionName, onRefresh, readOnly = false }) {
   const { connections } = useConnectionStore()
   const activeConnection = connections.find((c) => c.id === connId)
   const {
@@ -363,11 +363,15 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
   }, [selectedField])
 
   const openDocumentModal = (mode, doc) => {
+    // In read-only contexts (e.g. aggregation results) block insert/edit, which
+    // would otherwise write back to the source collection by _id.
+    if (readOnly && mode !== 'view') return
     setModalConfig({ isOpen: true, mode, document: doc })
     setMenuConfig(null)
   }
 
   const handleSaveDocument = async (parsedDoc) => {
+    if (readOnly) return
     try {
       let res
       if (!window.electron) return
@@ -400,6 +404,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
   }
 
   const handleDeleteDocument = async (doc) => {
+    if (readOnly) return
     if (!window.confirm('Are you sure you want to delete this document?')) return
 
     try {
@@ -423,6 +428,7 @@ export default function JsonTreeView({ connId, data, dbName, collectionName, onR
   }
 
   const handleDeleteMultiple = async () => {
+    if (readOnly) return
     const count = selectedIndices.size
     if (!window.confirm(`Are you sure you want to delete ${count} selected documents?`)) return
 

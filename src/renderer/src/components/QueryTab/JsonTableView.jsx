@@ -40,7 +40,7 @@ const formatValueForClipboard = (value) => {
   }
 }
 
-export default function JsonTableView({ connId, data, dbName, collectionName, onRefresh }) {
+export default function JsonTableView({ connId, data, dbName, collectionName, onRefresh, readOnly = false }) {
   const {
     menu: menuConfig,
     menuRef,
@@ -264,11 +264,13 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
   }, [selectedCell])
 
   const openDocumentModal = (mode, doc) => {
+    if (readOnly && mode !== 'view') return
     setModalConfig({ isOpen: true, mode, document: doc })
     setMenuConfig(null)
   }
 
   const handleSaveDocument = async (parsedDoc) => {
+    if (readOnly) return
     try {
       if (!window.electron) return
 
@@ -301,6 +303,7 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
   }
 
   const handleDeleteDocument = async (doc) => {
+    if (readOnly) return
     if (!window.confirm('Are you sure you want to delete this document?')) return
 
     try {
@@ -324,6 +327,7 @@ export default function JsonTableView({ connId, data, dbName, collectionName, on
   }
 
   const handleDeleteMultiple = async () => {
+    if (readOnly) return
     const count = selectedIndices.size
     if (!window.confirm(`Are you sure you want to delete ${count} selected documents?`)) return
 

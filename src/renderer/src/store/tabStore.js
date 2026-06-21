@@ -139,6 +139,17 @@ export const useTabStore = create((set, get) => ({
     })
   },
 
+  // Persist an aggregation tab's structured pipeline ([{ op, body, enabled }]) on
+  // the tab object so it survives tab switches (inactive tabs are unmounted),
+  // workspace save/restore, and tab duplication. The generated query string is
+  // updated in the same set() call to avoid a second workspace write per keystroke.
+  setTabPipeline: (id, newQuery, pipeline) => {
+    const { tabs } = get()
+    set({
+      tabs: tabs.map((t) => (t.id === id ? { ...t, query: newQuery, pipeline } : t))
+    })
+  },
+
   setTabPagination: (id, skip, limit) => {
     const { tabs } = get()
     set({

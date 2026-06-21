@@ -30,12 +30,14 @@ import {
   Download,
   Upload,
   Archive,
-  ArchiveRestore
+  ArchiveRestore,
+  Layers
 } from 'lucide-react'
 import ExportTab from './components/ExportTab'
 import ImportTab from './components/ImportTab'
 import BsonTab from './components/BsonTab'
 import CloneTab from './components/CloneTab'
+import AggregationTab from './components/AggregationTab'
 import SettingsModal from './components/SettingsModal'
 import WorkspacesModal from './components/WorkspacesModal'
 
@@ -529,6 +531,7 @@ function App() {
                       if (tab.type === 'import') return <ImportTab key={tab.id} tab={tab} />
                       if (tab.type === 'bson') return <BsonTab key={tab.id} tab={tab} />
                       if (tab.type === 'sync') return <CloneTab key={tab.id} tab={tab} />
+                      if (tab.type === 'aggregate') return <AggregationTab key={tab.id} tab={tab} />
                       return <QueryTab key={tab.id} tab={tab} />
                     })}
                 </>
@@ -870,6 +873,22 @@ function App() {
                 className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2 font-medium"
               >
                 <FileText size={13} /> View Documents
+              </button>
+              <button
+                onClick={() => {
+                  openTab({
+                    title: `Aggregate: ${sidebarMenu.colName}`,
+                    type: 'aggregate',
+                    connId: sidebarMenu.connId,
+                    dbName: sidebarMenu.dbName,
+                    collectionName: sidebarMenu.colName,
+                    skipAutoRun: true
+                  })
+                  setSidebarMenu(null)
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <Layers size={13} className="text-accent" /> Aggregation Pipeline...
               </button>
               <button
                 onClick={() => {
