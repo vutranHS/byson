@@ -75,7 +75,11 @@ const STAGE_CATALOG = [
       { op: '$addFields', desc: 'Add or overwrite fields', body: '{\n  newField: "$expr"\n}' },
       { op: '$set', desc: 'Alias of $addFields', body: '{\n  newField: "$expr"\n}' },
       { op: '$unset', desc: 'Remove fields', body: '"fieldToRemove"' },
-      { op: '$replaceRoot', desc: 'Promote a sub-document to root', body: '{ newRoot: "$subdoc" }' },
+      {
+        op: '$replaceRoot',
+        desc: 'Promote a sub-document to root',
+        body: '{ newRoot: "$subdoc" }'
+      },
       { op: '$replaceWith', desc: 'Replace root with an expression', body: '"$subdoc"' }
     ]
   },
@@ -94,8 +98,16 @@ const STAGE_CATALOG = [
         desc: 'Group into explicit ranges',
         body: '{\n  groupBy: "$field",\n  boundaries: [0, 100, 200],\n  default: "other"\n}'
       },
-      { op: '$bucketAuto', desc: 'Auto-distribute into N buckets', body: '{ groupBy: "$field", buckets: 5 }' },
-      { op: '$facet', desc: 'Run multiple sub-pipelines', body: '{\n  branchA: [ { $match: {} } ]\n}' }
+      {
+        op: '$bucketAuto',
+        desc: 'Auto-distribute into N buckets',
+        body: '{ groupBy: "$field", buckets: 5 }'
+      },
+      {
+        op: '$facet',
+        desc: 'Run multiple sub-pipelines',
+        body: '{\n  branchA: [ { $match: {} } ]\n}'
+      }
     ]
   },
   {
@@ -111,7 +123,11 @@ const STAGE_CATALOG = [
         desc: 'Recursive graph join',
         body: '{\n  from: "coll",\n  startWith: "$field",\n  connectFromField: "field",\n  connectToField: "_id",\n  as: "tree"\n}'
       },
-      { op: '$unionWith', desc: 'Concatenate another collection', body: '{ coll: "otherCollection" }' },
+      {
+        op: '$unionWith',
+        desc: 'Concatenate another collection',
+        body: '{ coll: "otherCollection" }'
+      },
       { op: '$unwind', desc: 'Flatten an array field', body: '"$arrayField"' }
     ]
   },
@@ -122,8 +138,18 @@ const STAGE_CATALOG = [
   {
     group: 'Output',
     stages: [
-      { op: '$out', desc: 'Write results to a collection', body: '"resultCollection"', write: true },
-      { op: '$merge', desc: 'Upsert results into a collection', body: '{ into: "targetCollection" }', write: true }
+      {
+        op: '$out',
+        desc: 'Write results to a collection',
+        body: '"resultCollection"',
+        write: true
+      },
+      {
+        op: '$merge',
+        desc: 'Upsert results into a collection',
+        body: '{ into: "targetCollection" }',
+        write: true
+      }
     ]
   },
   {
@@ -156,7 +182,9 @@ const looseParse = (str) => {
   if (str == null || !String(str).trim()) return {}
   try {
     return JSON.parse(str)
-  } catch (e) { /* fallthrough */ }
+  } catch (e) {
+    /* fallthrough */
+  }
   try {
     const fixed = String(str)
       .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
@@ -166,6 +194,9 @@ const looseParse = (str) => {
     return null
   }
 }
+
+// Stages that reference another collection by name (from / coll / into).
+const COLLECTION_OPS = new Set(['$lookup', '$graphLookup', '$unionWith', '$out', '$merge'])
 
 // ---- Form Mode -------------------------------------------------------------
 // Stages whose body can be edited with a structured form instead of raw code.
@@ -227,9 +258,31 @@ export default function AggregationTab({ tab }) {
   const openTab = useTabStore((s) => s.openTab)
   const setTabPipeline = useTabStore((s) => s.setTabPipeline)
   const connections = useConnectionStore((s) => s.connections)
+  const dbCollections = useConnectionStore((s) => s.dbCollections)
   const addLog = useLogStore((s) => s.addLog)
 
   const monacoTheme = theme === 'light' ? 'vs' : 'vs-dark'
+
+  // Collection names in this DB, used to autocomplete $lookup/$out/etc. Falls
+  // back to a direct fetch if the sidebar never loaded them.
+  const cacheKey = `${tab.connId}_${tab.dbName}`
+  const [fetchedCols, setFetchedCols] = useState(null)
+  const collectionNames = dbCollections[cacheKey] || fetchedCols || []
+
+  useEffect(() => {
+    if ((dbCollections[cacheKey] || []).length) return
+    let cancelled = false
+    window.electron?.ipcRenderer
+      ?.invoke('db:listCollections', { connId: tab.connId, dbName: tab.dbName })
+      .then((res) => {
+        if (!cancelled && res?.collections) setFetchedCols(res.collections)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheKey])
 
   // Restore the structured pipeline persisted on the tab so the built pipeline
   // survives tab switches (inactive tabs are unmounted), workspace reloads, and
@@ -306,10 +359,7 @@ export default function AggregationTab({ tab }) {
     })
   }, [])
 
-  const removeStage = useCallback(
-    (id) => setStages((prev) => prev.filter((s) => s.id !== id)),
-    []
-  )
+  const removeStage = useCallback((id) => setStages((prev) => prev.filter((s) => s.id !== id)), [])
 
   const updateBody = useCallback(
     (id, body) => setStages((prev) => prev.map((s) => (s.id === id ? { ...s, body } : s))),
@@ -363,7 +413,9 @@ export default function AggregationTab({ tab }) {
           totalCount: 0,
           execTime: 0,
           error: null,
-          warning: strippedWrite ? 'Write stages are skipped in preview.' : 'No enabled stages to preview.',
+          warning: strippedWrite
+            ? 'Write stages are skipped in preview.'
+            : 'No enabled stages to preview.',
           upToOp
         })
         return
@@ -386,7 +438,9 @@ export default function AggregationTab({ tab }) {
             totalCount: res.totalCount,
             execTime: res.execTime,
             error: null,
-            warning: strippedWrite ? 'Write stages ($out/$merge) skipped in preview.' : res.warning || null,
+            warning: strippedWrite
+              ? 'Write stages ($out/$merge) skipped in preview.'
+              : res.warning || null,
             upToOp
           })
         } else {
@@ -509,7 +563,10 @@ export default function AggregationTab({ tab }) {
         <div className="w-52 shrink-0 border-r border-border bg-bg-secondary flex flex-col">
           <div className="p-2 border-b border-border">
             <div className="relative">
-              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary" />
+              <Search
+                size={12}
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary"
+              />
               <input
                 value={paletteQuery}
                 onChange={(e) => setPaletteQuery(e.target.value)}
@@ -544,7 +601,9 @@ export default function AggregationTab({ tab }) {
                       />
                       <span className="font-mono text-xs text-accent truncate">{s.op}</span>
                       {s.write && (
-                        <span className="ml-auto text-[9px] text-orange-400 font-medium">write</span>
+                        <span className="ml-auto text-[9px] text-orange-400 font-medium">
+                          write
+                        </span>
                       )}
                     </button>
                   ))}
@@ -588,18 +647,15 @@ export default function AggregationTab({ tab }) {
           {stages.map((stage, index) => (
             <div key={stage.id}>
               {/* drop indicator before this card */}
-              {dragOverIndex === index && (
-                <div className="h-0.5 bg-accent rounded my-1 mx-1" />
-              )}
+              {dragOverIndex === index && <div className="h-0.5 bg-accent rounded my-1 mx-1" />}
               <StageCard
                 stage={stage}
                 index={index}
                 expanded={expandedId === stage.id}
                 isPreviewTarget={preview.upToOp === stage.op}
                 monacoTheme={monacoTheme}
-                onToggleExpand={() =>
-                  setExpandedId((id) => (id === stage.id ? null : stage.id))
-                }
+                collections={collectionNames}
+                onToggleExpand={() => setExpandedId((id) => (id === stage.id ? null : stage.id))}
                 onToggleEnabled={() => toggleEnabled(stage.id)}
                 onRemove={() => removeStage(stage.id)}
                 onBodyChange={(v) => updateBody(stage.id, v)}
@@ -678,9 +734,7 @@ export default function AggregationTab({ tab }) {
                 </span>
               ) : (
                 <>
-                  {preview.totalCount !== undefined && (
-                    <span>{preview.totalCount} docs</span>
-                  )}
+                  {preview.totalCount !== undefined && <span>{preview.totalCount} docs</span>}
                   {preview.execTime != null && <span>{preview.execTime}ms</span>}
                 </>
               )}
@@ -846,7 +900,11 @@ function ObjectRowsForm({ op, body, onBodyChange }) {
 }
 
 function NumberForm({ body, onBodyChange, label }) {
-  const [val, setVal] = useState(() => String(body ?? '').trim().replace(/[^\d]/g, ''))
+  const [val, setVal] = useState(() =>
+    String(body ?? '')
+      .trim()
+      .replace(/[^\d]/g, '')
+  )
   const change = (v) => {
     const clean = v.replace(/[^\d]/g, '')
     setVal(clean)
@@ -955,6 +1013,7 @@ function StageCard({
   expanded,
   isPreviewTarget,
   monacoTheme,
+  collections = [],
   onToggleExpand,
   onToggleEnabled,
   onRemove,
@@ -966,15 +1025,23 @@ function StageCard({
   onDropCard
 }) {
   const meta = STAGE_META[stage.op]
-  const summary = (stage.body || '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 64)
+  const summary = (stage.body || '').replace(/\s+/g, ' ').trim().slice(0, 64)
 
   const formCapable = FORM_OPS.has(stage.op)
   const [editMode, setEditMode] = useState(() => (formCapable ? 'form' : 'code'))
   const formAvailable = canUseForm(stage.op, stage.body)
   const effectiveMode = editMode === 'form' && formAvailable ? 'form' : 'code'
+
+  const collectionAware = COLLECTION_OPS.has(stage.op) && collections.length > 0
+  const editorRef = useRef(null)
+  const insertCollection = (name) => {
+    const ed = editorRef.current
+    if (!ed) return
+    ed.executeEdits('insert-collection', [
+      { range: ed.getSelection(), text: JSON.stringify(name), forceMoveMarkers: true }
+    ])
+    ed.focus()
+  }
 
   return (
     <div
@@ -1008,9 +1075,7 @@ function StageCard({
           )}
         </button>
 
-        {meta?.write && (
-          <span className="text-[9px] text-orange-400 font-medium px-1">write</span>
-        )}
+        {meta?.write && <span className="text-[9px] text-orange-400 font-medium px-1">write</span>}
         <button
           onClick={onPreviewHere}
           title="Preview up to this stage"
@@ -1076,25 +1141,43 @@ function StageCard({
               <StageForm op={stage.op} body={stage.body} onBodyChange={onBodyChange} />
             </div>
           ) : (
-            <div className="h-40">
-              <Editor
-                height="100%"
-                language="javascript"
-                theme={monacoTheme}
-                value={stage.body}
-                onChange={(v) => onBodyChange(v ?? '')}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 12,
-                  lineNumbers: 'off',
-                  scrollBeyondLastLine: false,
-                  folding: false,
-                  wordWrap: 'on',
-                  automaticLayout: true,
-                  padding: { top: 8, bottom: 8 }
-                }}
-              />
-            </div>
+            <>
+              {collectionAware && (
+                <div className="flex items-center gap-1 flex-wrap px-2 py-1 border-b border-border bg-bg-primary/40">
+                  <span className="text-[10px] text-text-secondary mr-1">Collections:</span>
+                  {collections.map((name) => (
+                    <button
+                      key={name}
+                      onClick={() => insertCollection(name)}
+                      title={`Insert "${name}" at cursor`}
+                      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-bg-tertiary hover:bg-bg-hover text-text-secondary hover:text-accent"
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="h-40">
+                <Editor
+                  height="100%"
+                  language="javascript"
+                  theme={monacoTheme}
+                  value={stage.body}
+                  onMount={(ed) => (editorRef.current = ed)}
+                  onChange={(v) => onBodyChange(v ?? '')}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 12,
+                    lineNumbers: 'off',
+                    scrollBeyondLastLine: false,
+                    folding: false,
+                    wordWrap: 'on',
+                    automaticLayout: true,
+                    padding: { top: 8, bottom: 8 }
+                  }}
+                />
+              </div>
+            </>
           )}
         </div>
       )}
