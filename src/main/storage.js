@@ -43,9 +43,9 @@ function initStorageHandlers() {
       if (!existsSync(filePath)) return []
       const data = readFileSync(filePath, 'utf-8')
       const connections = JSON.parse(data)
-      
+
       // Decrypt sensitive fields on load
-      return connections.map(conn => ({
+      return connections.map((conn) => ({
         ...conn,
         authPass: decryptSecret(conn.authPass),
         sshPass: decryptSecret(conn.sshPass),
@@ -61,9 +61,9 @@ function initStorageHandlers() {
   ipcMain.handle('storage:saveConnections', (_, connections) => {
     try {
       const filePath = getStoragePath('connections.json')
-      
+
       // Encrypt sensitive fields before saving
-      const encryptedConnections = connections.map(conn => ({
+      const encryptedConnections = connections.map((conn) => ({
         ...conn,
         authPass: encryptSecret(conn.authPass),
         sshPass: encryptSecret(conn.sshPass),
@@ -86,9 +86,9 @@ function initStorageHandlers() {
       if (!existsSync(filePath)) return null
       const data = readFileSync(filePath, 'utf-8')
       const session = JSON.parse(data)
-      
+
       if (session && Array.isArray(session.lastSession)) {
-        session.lastSession = session.lastSession.map(tab => ({
+        session.lastSession = session.lastSession.map((tab) => ({
           ...tab,
           query: decryptSecret(tab.query)
         }))
@@ -105,7 +105,7 @@ function initStorageHandlers() {
       const filePath = getStoragePath('workspace.json')
       const encryptedSession = {
         ...session,
-        lastSession: session.lastSession.map(tab => ({
+        lastSession: session.lastSession.map((tab) => ({
           ...tab,
           query: encryptSecret(tab.query)
         }))
@@ -125,8 +125,8 @@ function initStorageHandlers() {
       if (!existsSync(filePath)) return []
       const data = readFileSync(filePath, 'utf-8')
       const records = JSON.parse(data)
-      
-      return records.map(record => ({
+
+      return records.map((record) => ({
         ...record,
         query: decryptSecret(record.query)
       }))
@@ -139,7 +139,7 @@ function initStorageHandlers() {
   ipcMain.handle('storage:saveHistory', (_, records) => {
     try {
       const filePath = getStoragePath('history.json')
-      const encryptedRecords = records.map(record => ({
+      const encryptedRecords = records.map((record) => ({
         ...record,
         query: encryptSecret(record.query)
       }))
@@ -147,6 +147,29 @@ function initStorageHandlers() {
       return true
     } catch (err) {
       console.error('Error writing history.json', err)
+      return false
+    }
+  })
+
+  // --- Saved aggregation pipelines (not sensitive, stored as plain JSON) ---
+  ipcMain.handle('storage:getPipelines', () => {
+    try {
+      const filePath = getStoragePath('pipelines.json')
+      if (!existsSync(filePath)) return []
+      return JSON.parse(readFileSync(filePath, 'utf-8'))
+    } catch (err) {
+      console.error('Error reading pipelines.json', err)
+      return []
+    }
+  })
+
+  ipcMain.handle('storage:savePipelines', (_, pipelines) => {
+    try {
+      const filePath = getStoragePath('pipelines.json')
+      writeFileSync(filePath, JSON.stringify(pipelines, null, 2), 'utf-8')
+      return true
+    } catch (err) {
+      console.error('Error writing pipelines.json', err)
       return false
     }
   })
@@ -177,7 +200,7 @@ function getConnectionById(id) {
     if (!existsSync(filePath)) return null
     const data = readFileSync(filePath, 'utf-8')
     const connections = JSON.parse(data)
-    const conn = connections.find(c => String(c.id) === String(id))
+    const conn = connections.find((c) => String(c.id) === String(id))
     if (conn) {
       return {
         ...conn,

@@ -4,6 +4,7 @@ import { useSettingsStore } from '../../store/settingsStore'
 import { useTabStore } from '../../store/tabStore'
 import { useConnectionStore } from '../../store/connectionStore'
 import { useLogStore } from '../../store/logStore'
+import { usePipelineStore } from '../../store/pipelineStore'
 import Editor, { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
@@ -35,7 +36,10 @@ import {
   Search,
   Zap,
   Gauge,
-  Lightbulb
+  Lightbulb,
+  Bookmark,
+  Save,
+  Download
 } from 'lucide-react'
 
 // --- Monaco worker bootstrap (mirrors QueryTab so this tab is self-contained) ---
@@ -295,6 +299,14 @@ export default function AggregationTab({ tab }) {
   const connections = useConnectionStore((s) => s.connections)
   const dbCollections = useConnectionStore((s) => s.dbCollections)
   const addLog = useLogStore((s) => s.addLog)
+  const savedPipelines = usePipelineStore((s) => s.records)
+  const initPipelines = usePipelineStore((s) => s.initStore)
+  const savePipelineToStore = usePipelineStore((s) => s.savePipeline)
+  const removePipelineFromStore = usePipelineStore((s) => s.removePipeline)
+
+  useEffect(() => {
+    initPipelines()
+  }, [initPipelines])
 
   const monacoTheme = theme === 'light' ? 'vs' : 'vs-dark'
 
@@ -339,6 +351,7 @@ export default function AggregationTab({ tab }) {
   const [autoPreview, setAutoPreview] = useState(true)
   const [paletteQuery, setPaletteQuery] = useState('')
   const [copied, setCopied] = useState(false)
+  const [savedOpen, setSavedOpen] = useState(false)
 
   const [preview, setPreview] = useState({
     loading: false,
@@ -566,6 +579,65 @@ export default function AggregationTab({ tab }) {
     }
   }, [stages, tab.collectionName, tab.connId, tab.dbName, addLog])
 
+  // ---- Saved pipelines -----------------------------------------------------
+  const saveCurrentPipeline = useCallback(async () => {
+    const name = window.prompt('Save pipeline as:', `${tab.collectionName} pipeline`)
+    if (!name || !name.trim()) return
+    await savePipelineToStore({
+      name: name.trim(),
+      collectionName: tab.collectionName,
+      pipeline: stages.map((s) => ({ op: s.op, body: s.body, enabled: s.enabled }))
+    })
+    addLog(`Saved aggregation pipeline "${name.trim()}"`, 'success')
+  }, [stages, tab.collectionName, savePipelineToStore, addLog])
+
+  const loadPipeline = useCallback((record) => {
+    const loaded = (record.pipeline || []).map((p) => ({
+      id: `stg-${Date.now()}-${stageSeq++}`,
+      op: p.op,
+      body: p.body ?? '',
+      enabled: p.enabled !== false
+    }))
+    setStages(loaded.length ? loaded : [newStage('$match')])
+    setExpandedId(loaded[0]?.id ?? null)
+    setSavedOpen(false)
+  }, [])
+
+  // ---- Export results ------------------------------------------------------
+  const exportResults = useCallback(async () => {
+    let sliced = stages.filter((s) => s.enabled)
+    while (sliced.length && WRITE_STAGES.has(sliced[sliced.length - 1].op)) {
+      sliced = sliced.slice(0, -1)
+    }
+    if (!sliced.length) {
+      addLog('No enabled non-write stages to export.', 'warning')
+      return
+    }
+    const filePath = await window.electron.ipcRenderer.invoke('shell:saveFile', {
+      title: 'Export Aggregation Results',
+      defaultPath: `${tab.collectionName}_aggregate.json`,
+      filters: [{ name: 'JSON Files', extensions: ['json'] }]
+    })
+    if (!filePath) return
+
+    addLog('Exporting aggregation results…', 'info')
+    try {
+      const res = await window.electron.ipcRenderer.invoke('db:exportCollection', {
+        operationId: crypto.randomUUID(),
+        connId: tab.connId,
+        dbName: tab.dbName,
+        collectionName: tab.collectionName,
+        filePath,
+        format: 'json',
+        queryString: buildCode(tab.collectionName, sliced)
+      })
+      if (res.ok) addLog(`Exported aggregation results to ${filePath}`, 'success')
+      else addLog(`Export failed: ${res.error}`, 'error')
+    } catch (err) {
+      addLog(`Export failed: ${err.message}`, 'error')
+    }
+  }, [stages, tab.collectionName, tab.connId, tab.dbName, addLog])
+
   // ---- Palette (with search) ----------------------------------------------
   const filteredCatalog = useMemo(() => {
     const q = paletteQuery.trim().toLowerCase()
@@ -631,6 +703,69 @@ export default function AggregationTab({ tab }) {
           >
             <ExternalLink size={12} /> Query Tab
           </button>
+          <button
+            onClick={exportResults}
+            className="flex items-center gap-1 px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-hover text-xs"
+            title="Export the pipeline results to a JSON file"
+          >
+            <Download size={12} /> Export
+          </button>
+          <div className="relative">
+            <button
+              onClick={() => setSavedOpen((o) => !o)}
+              className="flex items-center gap-1 px-2 py-1 rounded bg-bg-tertiary hover:bg-bg-hover text-xs"
+              title="Saved pipelines"
+            >
+              <Bookmark size={12} /> Saved <ChevronDown size={11} />
+            </button>
+            {savedOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setSavedOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 w-64 max-h-72 overflow-auto bg-bg-secondary border border-border rounded shadow-lg z-20 py-1">
+                  <button
+                    onClick={() => {
+                      setSavedOpen(false)
+                      saveCurrentPipeline()
+                    }}
+                    className="flex items-center gap-1.5 w-full px-2 py-1.5 text-xs text-text-primary hover:bg-bg-hover"
+                  >
+                    <Save size={12} /> Save current pipeline…
+                  </button>
+                  <div className="border-t border-border my-1" />
+                  {savedPipelines.length === 0 ? (
+                    <div className="px-2 py-1 text-[11px] text-text-secondary italic">
+                      No saved pipelines
+                    </div>
+                  ) : (
+                    savedPipelines.map((r) => (
+                      <div
+                        key={r.id}
+                        className="flex items-center gap-1 px-2 py-1 hover:bg-bg-hover"
+                      >
+                        <button
+                          onClick={() => loadPipeline(r)}
+                          className="flex-1 text-left min-w-0"
+                          title="Load this pipeline"
+                        >
+                          <div className="text-xs text-text-primary truncate">{r.name}</div>
+                          <div className="text-[10px] text-text-secondary truncate">
+                            {r.collectionName} · {r.pipeline?.length || 0} stages
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => removePipelineFromStore(r.id)}
+                          title="Delete saved pipeline"
+                          className="p-1 text-text-secondary hover:text-red-400"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
