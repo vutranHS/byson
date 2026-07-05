@@ -112,7 +112,7 @@ $ npm run build:linux
 
 ## 🗺️ Roadmap
 
-See our full roadmap and vote on upcoming features in [FEATURES_REQUEST.md](../FEATURES_REQUEST.md).
+See our full roadmap in [ROADMAP.md](ROADMAP.md).
 
 **Already shipped in v1.0.8:** Workspace Sessions, Global Query History, Tab IDE Menus, SSH Auto-Reconnect, Export/Import Engine (JSON/CSV/BSON/XLSX), Monaco Editor.
 
