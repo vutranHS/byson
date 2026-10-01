@@ -31,13 +31,15 @@ import {
   Upload,
   Archive,
   ArchiveRestore,
-  Layers
+  Layers,
+  HardDrive
 } from 'lucide-react'
 import ExportTab from './components/ExportTab'
 import ImportTab from './components/ImportTab'
 import BsonTab from './components/BsonTab'
 import CloneTab from './components/CloneTab'
 import AggregationTab from './components/AggregationTab'
+import GridFSTab from './components/GridFSTab'
 import SettingsModal from './components/SettingsModal'
 import WorkspacesModal from './components/WorkspacesModal'
 
@@ -532,6 +534,7 @@ function App() {
                       if (tab.type === 'bson') return <BsonTab key={tab.id} tab={tab} />
                       if (tab.type === 'sync') return <CloneTab key={tab.id} tab={tab} />
                       if (tab.type === 'aggregate') return <AggregationTab key={tab.id} tab={tab} />
+                      if (tab.type === 'gridfs') return <GridFSTab key={tab.id} tab={tab} />
                       return <QueryTab key={tab.id} tab={tab} />
                     })}
                 </>
@@ -806,6 +809,20 @@ function App() {
               >
                 <BarChart size={13} className="text-blue-400" /> Database Statistics
               </button>
+              <button
+                onClick={() => {
+                  openTab({
+                    title: `GridFS: ${sidebarMenu.dbName}`,
+                    type: 'gridfs',
+                    connId: sidebarMenu.connId,
+                    dbName: sidebarMenu.dbName
+                  })
+                  setSidebarMenu(null)
+                }}
+                className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+              >
+                <HardDrive size={13} className="text-purple-400" /> GridFS Browser...
+              </button>
               <div className="h-px bg-border my-1" />
               <button
                 onClick={() => {
@@ -874,6 +891,23 @@ function App() {
               >
                 <FileText size={13} /> View Documents
               </button>
+              {/\.(files|chunks)$/.test(sidebarMenu.colName) && (
+                <button
+                  onClick={() => {
+                    openTab({
+                      title: `GridFS: ${sidebarMenu.colName.replace(/\.(files|chunks)$/, '')}`,
+                      type: 'gridfs',
+                      connId: sidebarMenu.connId,
+                      dbName: sidebarMenu.dbName,
+                      bucketName: sidebarMenu.colName.replace(/\.(files|chunks)$/, '')
+                    })
+                    setSidebarMenu(null)
+                  }}
+                  className="w-full text-left px-4 py-1.5 hover:bg-bg-tertiary hover:text-white flex items-center gap-2"
+                >
+                  <HardDrive size={13} className="text-purple-400" /> Open in GridFS Browser
+                </button>
+              )}
               <button
                 onClick={() => {
                   openTab({

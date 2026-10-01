@@ -67,6 +67,7 @@ Robo3T was the go-to MongoDB GUI for hundreds of thousands of developers — lig
   - **JSON View**: Formatted syntax-highlighted output.
 - **⚡ Advanced Querying**: Professional editor powered by Monaco Editor.
 - **🧱 Aggregation Pipeline Builder**: Visually build pipelines stage by stage with drag/drop, form or code editing, live per-stage preview, an execution-plan explainer, and saved pipelines.
+- **🗂️ GridFS Browser**: Browse, preview, upload, download, rename, and delete GridFS files.
 - **📊 APM Profiler**: Real-time query performance monitoring.
 - **📂 Multi-Connection**: Manage and switch between multiple local and remote instances seamlessly.
 
@@ -116,7 +117,7 @@ See our full roadmap in [ROADMAP.md](ROADMAP.md).
 
 **Already shipped in v1.0.8:** Workspace Sessions, Global Query History, Tab IDE Menus, SSH Auto-Reconnect, Export/Import Engine (JSON/CSV/BSON/XLSX), Monaco Editor.
 
-**Recently shipped:** Aggregation Pipeline Builder (with Explain plan viewer), Index Manager.
+**Recently shipped:** GridFS Browser, Aggregation Pipeline Builder (with Explain plan viewer), Index Manager.
 
 **Coming soon:** Schema Analyzer.
 

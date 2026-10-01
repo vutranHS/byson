@@ -17,6 +17,7 @@ import { Transform, Readable } from 'stream'
 import { checkBsonTools, downloadBsonTools } from './bsonTools'
 import { spawn } from 'child_process'
 import { runDriverSync, activeSyncOperations } from './syncRunner'
+import * as gridfs from './gridfs'
 
 // Store active connection instances (Mapping ConnectionId -> { client, tunnel })
 const activeClients = {}
@@ -1941,6 +1942,104 @@ export function initDbHandlers() {
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e.message }
+    }
+  })
+
+  // ==========================================
+  // GridFS
+  // ==========================================
+
+  handle('db:gridfsListBuckets', async (_, { connId, dbName }) => {
+    try {
+      return await withRetry(connId, async (client) => ({
+        ok: true,
+        buckets: await gridfs.listBuckets(client, dbName)
+      }))
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  handle('db:gridfsListFiles', async (_, params) => {
+    try {
+      return await withRetry(params.connId, async (client) => ({
+        ok: true,
+        ...(await gridfs.listFiles(client, params))
+      }))
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  handle('db:gridfsPreview', async (_, params) => {
+    try {
+      return await withRetry(params.connId, async (client) => ({
+        ok: true,
+        ...(await gridfs.previewFile(client, params))
+      }))
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  // Upload/download stream bytes and report via db:gridfsProgress; both are
+  // cancellable through db:abortOperation, which destroys the registered streams.
+  const runGridfsTransfer = async (event, params, fn) => {
+    const { operationId, connId } = params
+    const onProgress = (transferred, total) =>
+      event.sender.send('db:gridfsProgress', { operationId, transferred, total })
+    let registered = false
+    const registerStream = (streams) => {
+      registered = true
+      activeOperations.set(operationId, streams)
+    }
+    try {
+      const session = await getSession(connId)
+      const result = await fn(session.client, { ...params, onProgress, registerStream })
+      return { ok: true, ...result }
+    } catch (err) {
+      const aborted = registered && !activeOperations.has(operationId)
+      return { ok: false, error: aborted ? 'Operation aborted by user' : err.message }
+    } finally {
+      activeOperations.delete(operationId)
+    }
+  }
+
+  handle('db:gridfsUpload', (event, params) => runGridfsTransfer(event, params, gridfs.uploadFile))
+  handle('db:gridfsDownload', (event, params) =>
+    runGridfsTransfer(event, params, gridfs.downloadFile)
+  )
+
+  handle('db:gridfsDelete', async (_, params) => {
+    try {
+      return await withRetry(params.connId, async (client) => {
+        await gridfs.deleteFile(client, params)
+        return { ok: true }
+      })
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  handle('db:gridfsRename', async (_, params) => {
+    try {
+      return await withRetry(params.connId, async (client) => {
+        await gridfs.renameFile(client, params)
+        return { ok: true }
+      })
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  handle('db:gridfsDropBucket', async (_, params) => {
+    try {
+      return await withRetry(params.connId, async (client) => {
+        await gridfs.dropBucket(client, params)
+        return { ok: true }
+      })
+    } catch (err) {
+      return { ok: false, error: err.message }
     }
   })
 

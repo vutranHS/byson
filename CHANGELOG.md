@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.10 — GridFS Browser 🗂️
+
+Browse and manage files stored in MongoDB GridFS ([#3](https://github.com/vutranHS/byson/issues/3)).
+
+### ✨ New: GridFS Browser
+Open it from the database menu in the sidebar (**GridFS Browser...**), or from any
+`*.files` / `*.chunks` collection (**Open in GridFS Browser**).
+
+- **Buckets auto-detected.** Every `<name>.files` + `<name>.chunks` pair shows up in
+  the bucket picker; an empty database starts on the default `fs` bucket.
+- **File list** with size, content type, upload date and `_id`, filename filter,
+  paging, and bucket totals.
+- **Upload & download** with a progress bar and Cancel. A cancelled upload removes
+  its partial chunks; a cancelled download deletes the partial file.
+- **Preview** images (up to 5 MB) and text files (first 256 KB), plus the file's
+  `metadata` document.
+- **Rename, delete, and drop bucket.**
+
 ## v1.1.9 — Aggregation Pipeline Builder 🧱
 
 A new visual way to build, preview, and tune MongoDB aggregation pipelines.
